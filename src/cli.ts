@@ -5,6 +5,7 @@ import { buildSnapshot, world, type Group, type Snapshot } from './core/model.ts
 import { observe, selfOf } from './core/observe.ts';
 import { executeKill, type KillRequest } from './core/kill.ts';
 import { actionsLog, defaultPaths } from './core/paths.ts';
+import { procSource } from './core/proc.ts';
 import { DEFAULT_PORT, dashboardUrl, serve } from './server.ts';
 import { ensureServer, findServer } from './launch.ts';
 import { describeGroup, runHook } from './hook.ts';
@@ -84,6 +85,16 @@ async function main(): Promise<number> {
   const cmd = argv[0];
 
   if (cmd === 'serve') {
+    // Run from inside a Claude Code session, the server would inherit that session's markers:
+    // listed under it, and a ghost once it ends. Hand off to the same clean, detached launch the
+    // hook uses instead.
+    if (process.env.CLAUDECODE === '1' || process.env.CLAUDE_CODE_SESSION_ID) {
+      try {
+        const { url, started } = await ensureServer(paths);
+        console.log(`${started ? 'started in the background (outside this Claude session)' : 'already running'}: ${url}`);
+        return 0;
+      } catch (e: any) { console.error(e?.message ?? e); return 1; }
+    }
     // Started by the hook: the token arrives on stdin, and this process's output goes to server.log,
     // so the token is never printed there.
     const spawned = process.env.CLAUDE_WATCH_TOKEN_STDIN === '1';
@@ -110,7 +121,8 @@ async function main(): Promise<number> {
     try { ({ url } = await ensureServer(paths)); } catch (e: any) { console.error(e?.message ?? e); return 1; }
     console.log(url);
     if (!flag('--no-browser')) {
-      try { spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref(); } catch {}
+      const opener = process.platform === 'darwin' ? 'open' : 'xdg-open';
+      try { spawn(opener, [url], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref(); } catch {}
     }
     return 0;
   }
@@ -126,7 +138,7 @@ async function main(): Promise<number> {
     const self = selfOf(process.pid, paths);
     const req = killRequestFor(buildSnapshot(observe(paths, self)), n);
     if (typeof req === 'string') { console.error(req); return 1; }
-    const r = await executeKill(req, { look: () => world(observe(paths, self)), procRoot: paths.procRoot, logFile: actionsLog(paths) }, { dryRun: !flag('--execute') });
+    const r = await executeKill(req, { look: () => world(observe(paths, self)), source: procSource(paths), logFile: actionsLog(paths) }, { dryRun: !flag('--execute') });
     if (r.outcome === 'refused') { console.error(`refused: ${r.refusal}`); return 1; }
     const who = r.members.map((m) => `${m.pid} ${m.cmdline.slice(0, 60)}`).join('\n    ');
     if (r.outcome === 'dry-run') {

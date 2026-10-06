@@ -2,7 +2,7 @@ import { test, describe, afterEach } from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { parseStat, readProcs, listeningPorts, parseNetTcp } from '../src/core/proc.ts';
+import { parseStat, readProcs, listeningPorts, parseNetTcp } from '../src/core/proc-linux.ts';
 import { buildSnapshot, world, type Self } from '../src/core/model.ts';
 import { observe } from '../src/core/observe.ts';
 import { readSessionRecords } from '../src/core/sessions.ts';

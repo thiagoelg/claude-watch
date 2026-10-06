@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { Port, Proc } from './proc.ts';
-import { liveSessions, type SessionRecord } from './sessions.ts';
+import { liveSessions, type SessionRecord, type StartMatcher } from './sessions.ts';
 
 export type Status = 'active' | 'ghost' | 'unattributed';
 
@@ -56,6 +56,8 @@ export interface Input {
   records: SessionRecord[];
   ports: Map<number, Port>;
   self: Self;
+  /** How a session record's start time is compared with a process (differs per OS). */
+  matchesStart?: StartMatcher;
 }
 
 const SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -78,9 +80,9 @@ export interface World {
   self: Self;
 }
 
-export function world(input: Pick<Input, 'procs' | 'records' | 'self'>): World {
+export function world(input: Pick<Input, 'procs' | 'records' | 'self' | 'matchesStart'>): World {
   const procs = new Map(input.procs.map((p) => [p.pid, p]));
-  const live = liveSessions(input.records, procs);
+  const live = liveSessions(input.records, procs, input.matchesStart);
   const claudeExes = new Set<string>();
   for (const r of live.values()) {
     const exe = procs.get(r.pid)?.exe;

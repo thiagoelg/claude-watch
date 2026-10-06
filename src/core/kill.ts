@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseStat, type Proc } from './proc.ts';
+import type { Proc, ProcSource } from './proc.ts';
 import {
   groupId, groupProcs, groupRefusal, memberRefusal, sessionOf, statusOf,
   type Status, type World,
@@ -79,7 +79,7 @@ export interface KillResult {
 export interface KillDeps {
   /** A fresh view of the world. Called before planning and on every poll. */
   look: () => World;
-  procRoot: string;
+  source: ProcSource;
   logFile?: string;
   graceMs?: number;
   pollMs?: number;
@@ -90,13 +90,9 @@ export interface KillDeps {
  * True while `pid` is still the same live process. A zombie has already died; a changed starttime
  * means the pid now belongs to someone else and must never be signalled.
  */
-export function stillAlive(id: Identity, procRoot: string): boolean {
-  try {
-    const s = parseStat(fs.readFileSync(path.join(procRoot, String(id.pid), 'stat'), 'utf8'));
-    return !!s && s.starttime === id.starttime && s.state !== 'Z' && s.state !== 'X';
-  } catch {
-    return false;
-  }
+export function stillAlive(id: Identity, source: ProcSource): boolean {
+  const s = source.identity(id.pid);
+  return !!s && s.starttime === id.starttime && s.state !== 'Z' && s.state !== 'X';
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -120,14 +116,14 @@ export async function executeKill(req: KillRequest, deps: KillDeps, opts: { dryR
   const signalled: KillResult['signalled'] = [];
   const send = (p: Proc, sig: 'SIGTERM' | 'SIGKILL') => {
     // Re-verify identity immediately before every signal.
-    if (!stillAlive(p, deps.procRoot)) return;
+    if (!stillAlive(p, deps.source)) return;
     signal(p.pid, sig);
     signalled.push({ pid: p.pid, starttime: p.starttime, signal: sig });
   };
 
   for (const p of tracked.values()) send(p, 'SIGTERM');
 
-  const survivors = () => [...tracked.values()].filter((p) => stillAlive(p, deps.procRoot));
+  const survivors = () => [...tracked.values()].filter((p) => stillAlive(p, deps.source));
   const deadline = Date.now() + graceMs;
   while (Date.now() < deadline) {
     await sleep(pollMs);

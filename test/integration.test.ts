@@ -7,11 +7,11 @@ import path from 'node:path';
 import { buildSnapshot, world } from '../src/core/model.ts';
 import { observe, selfOf } from '../src/core/observe.ts';
 import { executeKill } from '../src/core/kill.ts';
-import { readProc } from '../src/core/proc.ts';
+import { procSource } from '../src/core/proc.ts';
 import { cleanEnv } from '../src/launch.ts';
 import type { Paths } from '../src/core/paths.ts';
 
-// Real processes against the real /proc. The fake session id has no record, so the spawned tree
+// Real processes against the real OS (/proc on Linux, ps/lsof on macOS). The fake session id has no record, so the spawned tree
 // must show up as a ghost. Only a group whose sid is the pid we spawned is ever killed.
 const FAKE_SESSION = 'feedface-0000-4000-8000-000000000001';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-watch-it-'));
@@ -46,13 +46,13 @@ test('a detached command from an ended session is a ghost and can be killed', as
 
   const r = await executeKill(
     { target: { kind: 'group', sessionId: g.sessionId, sid: g.sid }, expect: g.members.map((m) => ({ pid: m.pid, starttime: m.starttime })) },
-    { look: () => world(observe(paths, self)), procRoot: '/proc', graceMs: 3000 },
+    { look: () => world(observe(paths, self)), source: procSource(paths), graceMs: 3000 },
   );
   assert.equal(r.ok, true, JSON.stringify(r));
   await sleep(100);
   for (const m of g.members) {
-    const p = readProc(m.pid);
-    assert.ok(!p || p.starttime !== m.starttime || p.state === 'Z', `pid ${m.pid} is gone`);
+    const id = procSource(paths).identity(m.pid);
+    assert.ok(!id || id.starttime !== m.starttime || id.state === 'Z', `pid ${m.pid} is gone`);
   }
   leader = undefined;
 });

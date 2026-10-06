@@ -5,6 +5,7 @@ import { world, type Self } from '../src/core/model.ts';
 import { observe } from '../src/core/observe.ts';
 import { planKill, executeKill, type KillRequest } from '../src/core/kill.ts';
 import { actionsLog } from '../src/core/paths.ts';
+import { linuxSource } from '../src/core/proc-linux.ts';
 import { FakeWorld, typicalWorld, claudeEnv, SESSION_A, SESSION_B } from './fixtures.ts';
 
 const SELF: Self = { pid: 99999, ancestors: [] };
@@ -77,7 +78,7 @@ describe('executeKill', () => {
     fw = ghostWorld();
     const sent: number[] = [];
     const r = await executeKill(groupReq(SESSION_B, 300, [300, 301]),
-      { look: look(fw), procRoot: fw.paths.procRoot, logFile: actionsLog(fw.paths), signal: (pid) => sent.push(pid) }, { dryRun: true });
+      { look: look(fw), source: linuxSource(fw.paths.procRoot), logFile: actionsLog(fw.paths), signal: (pid) => sent.push(pid) }, { dryRun: true });
     assert.equal(r.outcome, 'dry-run');
     assert.deepEqual(sent, []);
     assert.match(fs.readFileSync(actionsLog(fw.paths), 'utf8'), /"outcome":"dry-run"/);
@@ -87,7 +88,7 @@ describe('executeKill', () => {
     const w = ghostWorld(); fw = w;
     const sent: string[] = [];
     const r = await executeKill(groupReq(SESSION_B, 300, [300, 301]), {
-      look: look(w), procRoot: w.paths.procRoot, pollMs: 5, graceMs: 200,
+      look: look(w), source: linuxSource(w.paths.procRoot), pollMs: 5, graceMs: 200,
       signal: (pid, sig) => { sent.push(`${pid}:${sig}`); w.remove(pid); },
     });
     assert.equal(r.outcome, 'terminated');
@@ -98,7 +99,7 @@ describe('executeKill', () => {
     const w = ghostWorld(); fw = w;
     const sent: string[] = [];
     const r = await executeKill(groupReq(SESSION_B, 300, [300, 301]), {
-      look: look(w), procRoot: w.paths.procRoot, pollMs: 5, graceMs: 30,
+      look: look(w), source: linuxSource(w.paths.procRoot), pollMs: 5, graceMs: 30,
       signal: (pid, sig) => { sent.push(`${pid}:${sig}`); if (sig === 'SIGKILL' || pid === 300) w.remove(pid); },
     });
     assert.equal(r.outcome, 'killed');
@@ -109,7 +110,7 @@ describe('executeKill', () => {
     const w = ghostWorld(); fw = w;
     const sent: string[] = [];
     const r = await executeKill(groupReq(SESSION_B, 300, [300, 301]), {
-      look: look(w), procRoot: w.paths.procRoot, pollMs: 5, graceMs: 30,
+      look: look(w), source: linuxSource(w.paths.procRoot), pollMs: 5, graceMs: 30,
       signal: (pid, sig) => {
         sent.push(`${pid}:${sig}`);
         w.remove(pid);
@@ -124,7 +125,7 @@ describe('executeKill', () => {
   test('a zombie counts as dead', async () => {
     const w = ghostWorld(); fw = w;
     const r = await executeKill(groupReq(SESSION_B, 300, [300, 301]), {
-      look: look(w), procRoot: w.paths.procRoot, pollMs: 5, graceMs: 100,
+      look: look(w), source: linuxSource(w.paths.procRoot), pollMs: 5, graceMs: 100,
       signal: (pid) => { w.proc({ pid, sid: 300, state: 'Z', env: claudeEnv(SESSION_B) }); },
     });
     assert.equal(r.outcome, 'terminated');
@@ -135,7 +136,7 @@ describe('executeKill', () => {
     const sent: string[] = [];
     let forked = false;
     const r = await executeKill(groupReq(SESSION_B, 300, [300, 301]), {
-      look: look(w), procRoot: w.paths.procRoot, pollMs: 5, graceMs: 200,
+      look: look(w), source: linuxSource(w.paths.procRoot), pollMs: 5, graceMs: 200,
       signal: (pid, sig) => {
         sent.push(`${pid}:${sig}`);
         w.remove(pid);
@@ -148,7 +149,7 @@ describe('executeKill', () => {
 
   test('refusals are logged with their reason', async () => {
     fw = typicalWorld();
-    const r = await executeKill(groupReq(SESSION_A, 200, [200, 201]), { look: look(fw), procRoot: fw.paths.procRoot, logFile: actionsLog(fw.paths), signal: () => assert.fail('must not signal') });
+    const r = await executeKill(groupReq(SESSION_A, 200, [200, 201]), { look: look(fw), source: linuxSource(fw.paths.procRoot), logFile: actionsLog(fw.paths), signal: () => assert.fail('must not signal') });
     assert.equal(r.outcome, 'refused');
     assert.match(fs.readFileSync(actionsLog(fw.paths), 'utf8'), /confirm by typing/);
   });

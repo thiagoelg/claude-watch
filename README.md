@@ -4,7 +4,8 @@ See every process Claude Code starts — dev servers, watchers, build daemons, M
 the session that started it, in a live local dashboard. Clean up the ones left running after their
 session ended ("ghosts") without risking anything else.
 
-Linux only. No runtime dependencies; Node ≥ 22.18 runs the TypeScript directly.
+Linux, and macOS (implemented, not yet run on a Mac — see [docs/macos-testing.md](docs/macos-testing.md)).
+No runtime dependencies; Node ≥ 22.18 runs the TypeScript directly.
 
 ## How it decides
 
@@ -44,7 +45,9 @@ note to the new session: the dashboard URL and, if there are any, a summary of t
 start, and takes about 70 ms here (about 150 ms when it has to start the dashboard). On `clear` and `compact` it only keeps the server running.
 
 The dashboard server is started detached, with Claude's environment markers removed, so it is
-never itself counted as a Claude-started process. Its token is passed over a pipe (never the
+never itself counted as a Claude-started process — and so it can never become a ghost. That holds
+for `serve` too: run from inside a Claude session, it hands off to the same clean background
+launch instead of running attached to the session. Its token is passed over a pipe (never the
 environment or the log). Concurrent session starts share one server and one token. No URL is handed
 out until the server's own process holds the port, so if another program takes it first, nothing
 is started. The server exits
@@ -85,6 +88,17 @@ headers are sent. A running server is recognised by its exact process (pid + sta
 | `~/.claude-watch/actions.log` | one JSON line per kill or refusal (mode 0600: command lines can hold secrets) |
 
 `CLAUDE_WATCH_DIR`, `CLAUDE_CONFIG_DIR` and `CLAUDE_WATCH_PROC_ROOT` override the locations.
+
+## Platforms
+
+All process information goes through one interface (`ProcSource` in `src/core/proc.ts`):
+
+- **Linux** (`proc-linux.ts`) reads `/proc`: stat, environ, fds, `/proc/net/tcp{,6}`.
+- **macOS** (`proc-darwin.ts`) uses `ps` (including `ps -E` for the environment) and `lsof`. The
+  kill unit is the process group, since macOS `ps` cannot report session ids; Claude's detached
+  spawn makes each command its own group. Start times have one-second resolution. How Claude
+  Code writes `procStart` on macOS is not known yet, so session liveness accepts several formats;
+  [docs/macos-testing.md](docs/macos-testing.md) lists what to verify.
 
 ## Limits
 

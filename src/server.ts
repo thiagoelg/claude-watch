@@ -5,7 +5,7 @@ import path from 'node:path';
 import { buildSnapshot, world, type Self } from './core/model.ts';
 import { observe, selfOf } from './core/observe.ts';
 import { executeKill, type KillRequest, type Target } from './core/kill.ts';
-import { readStarttime } from './core/proc.ts';
+import { procSource } from './core/proc.ts';
 import { actionsLog, serverFile, type Paths } from './core/paths.ts';
 
 export const DEFAULT_PORT = 7337;
@@ -100,13 +100,15 @@ export function serve(opts: ServeOpts): Promise<Running> {
   const token = opts.token ?? newToken();
   const snapshotMs = opts.snapshotMs ?? 2000;
   const idleMs = opts.idleMs ?? 10 * 60 * 1000;
-  const self = () => opts.self ?? selfOf(process.pid, paths);
+  const source = procSource(paths);
+  const self = () => opts.self ?? selfOf(process.pid, paths, [], source);
+  const myStart = () => source.identity(process.pid)?.starttime ?? 0;
   const html = fs.readFileSync(UI_FILE, 'utf8');
   const clients = new Set<http.ServerResponse>();
   let lastActivity = Date.now();
   let port = 0;
 
-  const snapshot = () => buildSnapshot(observe(paths, self()));
+  const snapshot = () => buildSnapshot(observe(paths, self(), source));
   const broadcast = () => {
     if (!clients.size) return;
     const data = `data: ${JSON.stringify(snapshot())}\n\n`;
@@ -122,7 +124,7 @@ export function serve(opts: ServeOpts): Promise<Running> {
       lastActivity = Date.now();
 
       if (req.method === 'GET' && url.pathname === '/health') {
-        return send(res, 200, { app: 'claude-watch', pid: process.pid, procStart: readStarttime(process.pid, paths.procRoot) });
+        return send(res, 200, { app: 'claude-watch', pid: process.pid, procStart: myStart() });
       }
 
       const queryOk = safeEqual(url.searchParams.get('t') ?? '', token);
@@ -157,8 +159,8 @@ export function serve(opts: ServeOpts): Promise<Running> {
         const kreq = parseKillRequest(parsed);
         if (!kreq) return send(res, 400, { error: 'invalid kill request' });
         const result = await executeKill(kreq, {
-          look: () => world(observe(paths, self())),
-          procRoot: paths.procRoot,
+          look: () => world(observe(paths, self(), source)),
+          source,
           logFile: actionsLog(paths),
         });
         send(res, 200, result);
@@ -178,7 +180,7 @@ export function serve(opts: ServeOpts): Promise<Running> {
     if (!clients.size && Date.now() - lastActivity > idleMs) opts.onIdle?.();
   }, Math.min(30_000, idleMs));
 
-  const info = (): ServerInfo => ({ pid: process.pid, procStart: readStarttime(process.pid, paths.procRoot) ?? 0, port, token });
+  const info = (): ServerInfo => ({ pid: process.pid, procStart: myStart(), port, token });
 
   const close = () => new Promise<void>((resolve) => {
     clearInterval(tick);
