@@ -41,12 +41,13 @@ node src/cli.ts install-hook   # prints the snippet to merge into ~/.claude/sett
 On every session start and resume, the hook makes sure the dashboard is running and adds a short
 note to the new session: the dashboard URL and, if there are any, a summary of the ghosts
 (`2 ghost process group(s)… vite on :5173…`). It never kills anything, never fails a session
-start, and takes about 70 ms here. On `clear` and `compact` it only keeps the server running.
+start, and takes about 70 ms here (about 150 ms when it has to start the dashboard). On `clear` and `compact` it only keeps the server running.
 
 The dashboard server is started detached, with Claude's environment markers removed, so it is
 never itself counted as a Claude-started process. Its token is passed over a pipe (never the
-environment or the log). Concurrent session starts share one server and one token. If the port is
-already held by another program, nothing is started and no URL is handed out. The server exits
+environment or the log). Concurrent session starts share one server and one token. No URL is handed
+out until the server's own process holds the port, so if another program takes it first, nothing
+is started. The server exits
 after 10 minutes with no open tab.
 
 ## Killing safely

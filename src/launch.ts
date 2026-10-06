@@ -43,7 +43,8 @@ export function findServer(paths: Paths, opts: { listening?: boolean } = {}): Se
   return info;
 }
 
-const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+// Waits must be async: the token is still being written to the server's stdin pipe meanwhile.
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Return the dashboard URL, starting the server in the background if none is running.
@@ -51,7 +52,7 @@ const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuf
  * recorded in server.json right after the spawn, so concurrent callers all hand out the same one.
  */
 export async function ensureServer(paths: Paths, env: NodeJS.ProcessEnv = process.env): Promise<{ url: string; started: boolean }> {
-  const existing = findServer(paths);
+  const existing = findServer(paths, { listening: true });
   if (existing) return { url: dashboardUrl(existing), started: false };
 
   fs.mkdirSync(paths.dataDir, { recursive: true, mode: 0o700 });
@@ -62,11 +63,11 @@ export async function ensureServer(paths: Paths, env: NodeJS.ProcessEnv = proces
       fs.closeSync(fs.openSync(lock, 'wx', 0o600));
       haveLock = true;
     } catch {
-      // Someone else is starting it: wait briefly for their server.json.
-      for (let i = 0; i < 40; i++) {
-        const info = findServer(paths);
+      // Someone else is starting it: wait for their server to be listening.
+      for (let i = 0; i < 100; i++) {
+        const info = findServer(paths, { listening: true });
         if (info) return { url: dashboardUrl(info), started: false };
-        sleepSync(25);
+        await sleep(25);
       }
       try { if (Date.now() - fs.statSync(lock).mtimeMs > 5000) fs.unlinkSync(lock); } catch {}
     }
@@ -102,7 +103,15 @@ export async function ensureServer(paths: Paths, env: NodeJS.ProcessEnv = proces
 
     const info: ServerInfo = { pid: child.pid!, procStart: readStarttime(child.pid!, paths.procRoot) ?? 0, port, token };
     fs.writeFileSync(serverFile(paths), JSON.stringify(info), { mode: 0o600 });
-    return { url: dashboardUrl(info), started: true };
+
+    // The port was free a moment ago, but someone could have taken it since. Only hand out the
+    // URL (and its token) once our own process is the one holding the listening socket.
+    for (let i = 0; i < 80; i++) {
+      if (ownsListener(info.pid, port, paths.procRoot)) return { url: dashboardUrl(info), started: true };
+      if (!stillAlive({ pid: info.pid, starttime: info.procStart }, paths.procRoot)) break;
+      await sleep(25);
+    }
+    throw new Error(`the dashboard did not start listening on port ${port}; see ${serverLog(paths)}`);
   } finally {
     try { fs.unlinkSync(lock); } catch {}
   }
