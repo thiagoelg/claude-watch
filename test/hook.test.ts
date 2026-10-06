@@ -1,6 +1,9 @@
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { runHook } from '../src/hook.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { installHook, runHook } from '../src/hook.ts';
 import { cleanEnv } from '../src/launch.ts';
 import { FakeWorld, typicalWorld, claudeEnv, SESSION_B } from './fixtures.ts';
 
@@ -60,5 +63,56 @@ describe('cleanEnv', () => {
   test("strips Claude's markers and keeps everything else", () => {
     const env = cleanEnv({ CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'x', CLAUDE_CODE_ENTRYPOINT: 'cli', AI_AGENT: 'claude-code', HOME: '/h', CLAUDE_CONFIG_DIR: '/c' });
     assert.deepEqual(env, { HOME: '/h', CLAUDE_CONFIG_DIR: '/c' });
+  });
+});
+
+describe('installHook', () => {
+  const CMD = '"/usr/bin/node" "/home/u/claude-watch/src/cli.ts" hook';
+  let dir: string;
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const setup = (body?: string) => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-watch-settings-'));
+    const file = path.join(dir, 'settings.json');
+    if (body !== undefined) fs.writeFileSync(file, body);
+    return file;
+  };
+  const read = (file: string) => JSON.parse(fs.readFileSync(file, 'utf8'));
+
+  test('creates a missing settings file', () => {
+    const file = setup();
+    assert.deepEqual(installHook(file, CMD), { outcome: 'installed', backup: undefined });
+    assert.equal(read(file).hooks.SessionStart[0].hooks[0].command, CMD);
+  });
+
+  test('keeps every other setting and hook, and backs up the old file', () => {
+    const before = { model: 'opus', hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'echo hi' }] }], Stop: [] } };
+    const file = setup(JSON.stringify(before));
+    const r = installHook(file, CMD);
+    assert.equal(r.outcome, 'installed');
+    assert.deepEqual(read((r as { backup: string }).backup), before);
+    const after = read(file);
+    assert.equal(after.model, 'opus');
+    assert.deepEqual(after.hooks.Stop, []);
+    assert.deepEqual(after.hooks.SessionStart.map((e: any) => e.hooks[0].command), ['echo hi', CMD]);
+  });
+
+  test('a second run changes nothing', () => {
+    const file = setup('{}');
+    installHook(file, CMD);
+    const text = fs.readFileSync(file, 'utf8');
+    assert.deepEqual(installHook(file, CMD), { outcome: 'already-installed' });
+    assert.equal(fs.readFileSync(file, 'utf8'), text);
+    assert.equal(fs.readdirSync(dir).length, 2);   // settings.json and one backup
+  });
+
+  test('refuses invalid files and a hook from another checkout, without writing', () => {
+    for (const body of ['{nope', '[]', '{"hooks": []}', '{"hooks": {"SessionStart": {}}}',
+      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: '"/usr/bin/node" "/old/src/cli.ts" hook' }] }] } })]) {
+      const file = setup(body);
+      assert.equal(installHook(file, CMD).outcome, 'refused', body);
+      assert.equal(fs.readFileSync(file, 'utf8'), body);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-watch-settings-'));
   });
 });

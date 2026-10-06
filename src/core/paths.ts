@@ -20,6 +20,7 @@ export function defaultPaths(env: NodeJS.ProcessEnv = process.env): Paths {
 }
 
 export const sessionsDir = (p: Paths) => path.join(p.claudeDir, 'sessions');
+export const settingsFile = (p: Paths) => path.join(p.claudeDir, 'settings.json');
 export const serverFile = (p: Paths) => path.join(p.dataDir, 'server.json');
 export const serverLog = (p: Paths) => path.join(p.dataDir, 'server.log');
 export const actionsLog = (p: Paths) => path.join(p.dataDir, 'actions.log');

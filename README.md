@@ -36,7 +36,8 @@ node src/cli.ts kill <sid> --execute [--confirm <session name>]
 ### SessionStart hook
 
 ```sh
-node src/cli.ts install-hook   # prints the snippet to merge into ~/.claude/settings.json
+node src/cli.ts install-hook           # prints the snippet to merge into ~/.claude/settings.json
+node src/cli.ts install-hook --write   # adds it for you (keeps a backup of the old file)
 ```
 
 On every session start and resume, the hook makes sure the dashboard is running and adds a short

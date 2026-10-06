@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { buildSnapshot, world, type Group, type Snapshot } from './core/model.ts';
 import { observe, selfOf } from './core/observe.ts';
 import { executeKill, type KillRequest } from './core/kill.ts';
-import { actionsLog, defaultPaths } from './core/paths.ts';
+import { actionsLog, defaultPaths, settingsFile } from './core/paths.ts';
 import { procSource } from './core/proc.ts';
 import { DEFAULT_PORT, dashboardUrl, serve } from './server.ts';
 import { ensureServer, findServer } from './launch.ts';
-import { describeGroup, runHook } from './hook.ts';
+import { describeGroup, hookEntry, installHook, runHook } from './hook.ts';
 
 const USAGE = `usage: claude-watch <command>
 
@@ -19,12 +20,28 @@ const USAGE = `usage: claude-watch <command>
                                      kill a process group (by sid) or one process (by pid);
                                      dry-run unless --execute
   hook                               the SessionStart hook (reads hook JSON on stdin)
-  install-hook                       print the settings.json snippet for the hook`;
+  install-hook [--write]             print the settings.json snippet for the hook;
+                                     --write adds it to ~/.claude/settings.json`;
 
 const paths = defaultPaths();
 const argv = process.argv.slice(2);
 const flag = (name: string) => argv.includes(name);
 const option = (name: string) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
+
+/**
+ * This node's path, preferring a PATH entry that links to the same binary (e.g. /opt/homebrew/bin/node
+ * over /opt/homebrew/Cellar/node/26.8.1/bin/node), so the hook survives a node upgrade.
+ */
+function stableNodePath(): string {
+  const real = (p: string) => { try { return fs.realpathSync(p); } catch { return null; } };
+  const self = real(process.execPath);
+  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+    if (!path.isAbsolute(dir)) continue;
+    const candidate = path.join(dir, path.basename(process.execPath));
+    if (self && real(candidate) === self) return candidate;
+  }
+  return process.execPath;
+}
 
 const age = (ms: number) => {
   const s = Math.max(0, (Date.now() - ms) / 1000);
@@ -157,13 +174,18 @@ async function main(): Promise<number> {
 
   if (cmd === 'install-hook') {
     const cli = path.join(import.meta.dirname, 'cli.ts');
-    const snippet = {
-      hooks: {
-        // Absolute node: Claude started from an editor may have a different (older) node on PATH.
-        SessionStart: [{ hooks: [{ type: 'command', command: `"${process.execPath}" "${cli}" hook`, timeout: 10 }] }],
-      },
-    };
-    console.log(`Merge this into ~/.claude/settings.json (it runs on every session start, resume, clear and compact):\n\n${JSON.stringify(snippet, null, 2)}`);
+    // Absolute node: Claude started from an editor may have a different (older) node on PATH.
+    const command = `"${stableNodePath()}" "${cli}" hook`;
+    const file = settingsFile(paths);
+    if (flag('--write')) {
+      const r = installHook(file, command);
+      if (r.outcome === 'refused') { console.error(`not installed: ${r.reason}`); return 1; }
+      if (r.outcome === 'already-installed') console.log(`already installed in ${file}`);
+      else console.log(`installed in ${file}${r.backup ? ` (previous version: ${r.backup})` : ''}; it applies to new sessions`);
+      return 0;
+    }
+    const snippet = { hooks: { SessionStart: [hookEntry(command)] } };
+    console.log(`Merge this into ${file} (it runs on every session start, resume, clear and compact),\nor run install-hook --write to add it:\n\n${JSON.stringify(snippet, null, 2)}`);
     return 0;
   }
 

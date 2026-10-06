@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { buildSnapshot, type Group, type Snapshot } from './core/model.ts';
 import { observe, selfOf } from './core/observe.ts';
 import type { Paths } from './core/paths.ts';
@@ -57,4 +59,54 @@ export async function runHook(stdin: string, paths: Paths, ensure: () => Promise
   } catch {
     return null;
   }
+}
+
+/** The settings.json fragment that runs `command` on every SessionStart. */
+export const hookEntry = (command: string) => ({ hooks: [{ type: 'command', command, timeout: 10 }] });
+
+const OUR_HOOK = /cli\.ts"? hook$|claude-watch hook$/;
+
+export type InstallResult =
+  | { outcome: 'installed'; backup?: string }
+  | { outcome: 'already-installed' }
+  | { outcome: 'refused'; reason: string };
+
+/**
+ * Add the SessionStart hook to a Claude Code settings file. Every other setting stays as it is.
+ * The old file is copied to `<file>.bak-<ms>` first, and the new one replaces it in one rename.
+ * Refuses a file that is not a JSON object, and a different claude-watch hook (another checkout).
+ */
+export function installHook(file: string, command: string): InstallResult {
+  let text: string | null = null;
+  try { text = fs.readFileSync(file, 'utf8'); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; }
+  let settings: any = {};
+  if (text !== null && text.trim()) {
+    try { settings = JSON.parse(text); } catch { return { outcome: 'refused', reason: `${file} is not valid JSON` }; }
+  }
+  const isObject = (x: unknown) => typeof x === 'object' && x !== null && !Array.isArray(x);
+  if (!isObject(settings)) return { outcome: 'refused', reason: `${file} is not a JSON object` };
+  settings.hooks ??= {};
+  if (!isObject(settings.hooks)) return { outcome: 'refused', reason: '"hooks" is not an object' };
+  settings.hooks.SessionStart ??= [];
+  const entries = settings.hooks.SessionStart;
+  if (!Array.isArray(entries)) return { outcome: 'refused', reason: '"hooks.SessionStart" is not a list' };
+
+  const commands: string[] = entries.flatMap((e: any) => (Array.isArray(e?.hooks) ? e.hooks : []).map((h: any) => h?.command)).filter((c: unknown) => typeof c === 'string');
+  if (commands.includes(command)) return { outcome: 'already-installed' };
+  const other = commands.find((c) => OUR_HOOK.test(c));
+  if (other) return { outcome: 'refused', reason: `a different claude-watch hook is already installed (${other}); remove it first` };
+
+  entries.push(hookEntry(command));
+  let backup: string | undefined;
+  let mode = 0o600;
+  if (text !== null) {
+    backup = `${file}.bak-${Date.now()}`;
+    fs.copyFileSync(file, backup);
+    mode = fs.statSync(file).mode & 0o777;
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.claude-watch-${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n', { mode });
+  fs.renameSync(tmp, file);
+  return { outcome: 'installed', backup };
 }
