@@ -4,7 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { buildSnapshot, world, type Self } from './core/model.ts';
 import { observe, selfOf } from './core/observe.ts';
-import { executeKill, stillAlive, type KillRequest, type Target } from './core/kill.ts';
+import { executeKill, type KillRequest, type Target } from './core/kill.ts';
 import { readStarttime } from './core/proc.ts';
 import { actionsLog, serverFile, type Paths } from './core/paths.ts';
 
@@ -29,25 +29,13 @@ export function readServerInfo(paths: Paths): ServerInfo | null {
   return null;
 }
 
-/** The running server, if server.json names a live process that answers /health as itself. */
-export async function findRunning(paths: Paths, timeoutMs = 300): Promise<ServerInfo | null> {
-  const info = readServerInfo(paths);
-  if (!info || !stillAlive({ pid: info.pid, starttime: info.procStart }, paths.procRoot)) return null;
-  try {
-    const res = await fetch(`http://127.0.0.1:${info.port}/health`, { signal: AbortSignal.timeout(timeoutMs) });
-    const h = await res.json() as { app?: string; pid?: number };
-    return h.app === 'claude-watch' && h.pid === info.pid ? info : null;
-  } catch {
-    return null;
-  }
-}
-
 export interface ServeOpts {
   paths: Paths;
   port?: number;           // 0 picks a free port (tests)
   token?: string;
   snapshotMs?: number;
   idleMs?: number;
+  /** Fixed identity for tests; otherwise recomputed on every look, since ancestors can exit. */
   self?: Self;
   onIdle?: () => void;
 }
@@ -112,13 +100,13 @@ export function serve(opts: ServeOpts): Promise<Running> {
   const token = opts.token ?? newToken();
   const snapshotMs = opts.snapshotMs ?? 2000;
   const idleMs = opts.idleMs ?? 10 * 60 * 1000;
-  const self = opts.self ?? selfOf(process.pid, paths);
+  const self = () => opts.self ?? selfOf(process.pid, paths);
   const html = fs.readFileSync(UI_FILE, 'utf8');
   const clients = new Set<http.ServerResponse>();
   let lastActivity = Date.now();
   let port = 0;
 
-  const snapshot = () => buildSnapshot(observe(paths, self));
+  const snapshot = () => buildSnapshot(observe(paths, self()));
   const broadcast = () => {
     if (!clients.size) return;
     const data = `data: ${JSON.stringify(snapshot())}\n\n`;
@@ -169,7 +157,7 @@ export function serve(opts: ServeOpts): Promise<Running> {
         const kreq = parseKillRequest(parsed);
         if (!kreq) return send(res, 400, { error: 'invalid kill request' });
         const result = await executeKill(kreq, {
-          look: () => world(observe(paths, self)),
+          look: () => world(observe(paths, self())),
           procRoot: paths.procRoot,
           logFile: actionsLog(paths),
         });

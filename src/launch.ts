@@ -2,8 +2,10 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { serverLog, type Paths } from './core/paths.ts';
-import { DEFAULT_PORT, dashboardUrl, findRunning, newToken } from './server.ts';
+import { serverFile, serverLog, type Paths } from './core/paths.ts';
+import { listeningPorts, readProc, readStarttime } from './core/proc.ts';
+import { stillAlive } from './core/kill.ts';
+import { DEFAULT_PORT, dashboardUrl, newToken, readServerInfo, type ServerInfo } from './server.ts';
 
 const CLI = path.join(import.meta.dirname, 'cli.ts');
 
@@ -20,34 +22,88 @@ export function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return out;
 }
 
+/** Whether `pid` itself holds the LISTEN socket for `port`, so nobody else is answering there. */
+export function ownsListener(pid: number, port: number, procRoot: string): boolean {
+  const listening = listeningPorts(procRoot);
+  const p = readProc(pid, { root: procRoot, withSockets: true });
+  return !!p && p.socketInodes.some((i) => listening.get(i)?.port === port);
+}
+
+export const portTaken = (port: number, procRoot: string) =>
+  [...listeningPorts(procRoot).values()].some((p) => p.port === port);
+
+/**
+ * The server described by server.json, if that exact process (pid + starttime) is alive.
+ * With `listening`, it must also hold the port itself: proof without trusting whoever answers HTTP.
+ */
+export function findServer(paths: Paths, opts: { listening?: boolean } = {}): ServerInfo | null {
+  const info = readServerInfo(paths);
+  if (!info || !stillAlive({ pid: info.pid, starttime: info.procStart }, paths.procRoot)) return null;
+  if (opts.listening && !ownsListener(info.pid, info.port, paths.procRoot)) return null;
+  return info;
+}
+
+const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
 /**
  * Return the dashboard URL, starting the server in the background if none is running.
- * Does not wait for the new server to bind: the URL is known up front because the token is
- * generated here and handed over through the environment.
+ * The URL is known up front: the token is generated here, handed to the server over a pipe, and
+ * recorded in server.json right after the spawn, so concurrent callers all hand out the same one.
  */
 export async function ensureServer(paths: Paths, env: NodeJS.ProcessEnv = process.env): Promise<{ url: string; started: boolean }> {
-  const running = await findRunning(paths);
-  if (running) return { url: dashboardUrl(running), started: false };
+  const existing = findServer(paths);
+  if (existing) return { url: dashboardUrl(existing), started: false };
 
-  const port = Number(env.CLAUDE_WATCH_PORT) || DEFAULT_PORT;
-  const token = newToken();
   fs.mkdirSync(paths.dataDir, { recursive: true, mode: 0o700 });
-  // The server must not inherit our stdout: the hook's caller waits for that pipe to close.
-  const log = fs.openSync(serverLog(paths), 'a', 0o600);
-  const child = spawn(process.execPath, [CLI, 'serve'], {
-    cwd: os.homedir(),
-    detached: true,
-    stdio: ['ignore', log, log],
-    env: {
-      ...cleanEnv(env),
-      CLAUDE_WATCH_TOKEN: token,
-      CLAUDE_WATCH_PORT: String(port),
-      CLAUDE_WATCH_DIR: paths.dataDir,
-      CLAUDE_WATCH_PROC_ROOT: paths.procRoot,
-      CLAUDE_CONFIG_DIR: paths.claudeDir,
-    },
-  });
-  child.unref();
-  fs.closeSync(log);
-  return { url: dashboardUrl({ port, token }), started: true };
+  const lock = path.join(paths.dataDir, 'server.lock');
+  let haveLock = false;
+  for (let attempt = 0; attempt < 2 && !haveLock; attempt++) {
+    try {
+      fs.closeSync(fs.openSync(lock, 'wx', 0o600));
+      haveLock = true;
+    } catch {
+      // Someone else is starting it: wait briefly for their server.json.
+      for (let i = 0; i < 40; i++) {
+        const info = findServer(paths);
+        if (info) return { url: dashboardUrl(info), started: false };
+        sleepSync(25);
+      }
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > 5000) fs.unlinkSync(lock); } catch {}
+    }
+  }
+  if (!haveLock) throw new Error('another claude-watch is starting the dashboard; run `claude-watch open` in a moment');
+
+  try {
+    const port = Number(env.CLAUDE_WATCH_PORT) || DEFAULT_PORT;
+    // Never hand out a URL (with its token) that would reach someone else's program.
+    if (portTaken(port, paths.procRoot)) throw new Error(`port ${port} is in use by another program; set CLAUDE_WATCH_PORT`);
+
+    const token = newToken();
+    // The server must not inherit our stdout: the hook's caller waits for that pipe to close.
+    const log = fs.openSync(serverLog(paths), 'a', 0o600);
+    const child = spawn(process.execPath, [CLI, 'serve'], {
+      cwd: os.homedir(),
+      detached: true,
+      stdio: ['pipe', log, log],
+      env: {
+        ...cleanEnv(env),
+        CLAUDE_WATCH_TOKEN_STDIN: '1',
+        CLAUDE_WATCH_PORT: String(port),
+        CLAUDE_WATCH_DIR: paths.dataDir,
+        CLAUDE_WATCH_PROC_ROOT: paths.procRoot,
+        CLAUDE_CONFIG_DIR: paths.claudeDir,
+      },
+    });
+    fs.closeSync(log);
+    // The token goes over the pipe, not the environment, so it never shows in /proc/<pid>/environ.
+    child.stdin!.end(token + '\n');
+    child.unref();
+    (child.stdin as unknown as { unref?: () => void }).unref?.();
+
+    const info: ServerInfo = { pid: child.pid!, procStart: readStarttime(child.pid!, paths.procRoot) ?? 0, port, token };
+    fs.writeFileSync(serverFile(paths), JSON.stringify(info), { mode: 0o600 });
+    return { url: dashboardUrl(info), started: true };
+  } finally {
+    try { fs.unlinkSync(lock); } catch {}
+  }
 }

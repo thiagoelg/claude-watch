@@ -52,7 +52,7 @@ describe('hook', () => {
   test('bad input and a failing server start do not throw', async () => {
     fw = typicalWorld();
     const ctx = context(await runHook('not json', fw.paths, async () => { throw new Error('boom'); }, {}));
-    assert.match(ctx, /failed to start/);
+    assert.match(ctx, /not started: boom/);
   });
 });
 

@@ -42,7 +42,8 @@ export async function runHook(stdin: string, paths: Paths, ensure: () => Promise
   try { input = JSON.parse(stdin || '{}'); } catch {}
 
   let url = '';
-  try { url = (await ensure()).url; } catch {}
+  let why = '';
+  try { url = (await ensure()).url; } catch (e) { why = String((e as Error)?.message ?? e); }
 
   if (!REPORT_ON.has(input.source ?? 'startup')) return null;
 
@@ -51,7 +52,7 @@ export async function runHook(stdin: string, paths: Paths, ensure: () => Promise
     // (this hook, its shell) would be reported as ghosts.
     const assumeLive = [input.session_id, env.CLAUDE_CODE_SESSION_ID].filter((x): x is string => !!x).map((x) => x.toLowerCase());
     const snap = buildSnapshot(observe(paths, selfOf(process.pid, paths, assumeLive)));
-    const additionalContext = ghostReport(snap, url || '(failed to start; run `claude-watch open`)');
+    const additionalContext = ghostReport(snap, url || `(not started: ${why || 'unknown error'})`);
     return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext } });
   } catch {
     return null;

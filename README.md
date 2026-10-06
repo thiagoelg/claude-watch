@@ -41,10 +41,13 @@ node src/cli.ts install-hook   # prints the snippet to merge into ~/.claude/sett
 On every session start and resume, the hook makes sure the dashboard is running and adds a short
 note to the new session: the dashboard URL and, if there are any, a summary of the ghosts
 (`2 ghost process group(s)… vite on :5173…`). It never kills anything, never fails a session
-start, and takes well under 100 ms. On `clear` and `compact` it only keeps the server running.
+start, and takes about 70 ms here. On `clear` and `compact` it only keeps the server running.
 
 The dashboard server is started detached, with Claude's environment markers removed, so it is
-never itself counted as a Claude-started process. It exits after 10 minutes with no open tab.
+never itself counted as a Claude-started process. Its token is passed over a pipe (never the
+environment or the log). Concurrent session starts share one server and one token. If the port is
+already held by another program, nothing is started and no URL is handed out. The server exits
+after 10 minutes with no open tab.
 
 ## Killing safely
 
@@ -69,7 +72,8 @@ The server listens on `127.0.0.1:7337` (`CLAUDE_WATCH_PORT` to change it). Every
 kill needs a random per-server token (it is in the URL the hook and `open` print); the `Host` header
 must be the loopback address (DNS-rebinding guard); `POST /kill` additionally needs the token in a
 header, a same-origin `Origin`, and a JSON body, so other websites cannot trigger it. No CORS
-headers are sent.
+headers are sent. A running server is recognised by its exact process (pid + starttime from
+`server.json`) holding the listening socket itself, not by whatever answers on the port.
 
 ## Files
 
@@ -84,10 +88,9 @@ headers are sent.
 ## Limits
 
 - Processes that drop Claude's environment (`env -i`, setuid binaries) are invisible.
-- MCP servers are not started detached, so they share a sid with the editor or terminal that
-  runs Claude; their group kill is refused, but each one can be killed on its own.
-- The token stays readable in the server's own `/proc/<pid>/environ` (only by you, like
-  `server.json`).
+- MCP servers (observed with the Playwright MCP) are not started detached, so they share a sid
+  with the editor or terminal that runs Claude; their group kill is refused, but each one can be
+  killed on its own.
 
 ## Development
 

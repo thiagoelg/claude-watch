@@ -5,8 +5,8 @@ import { buildSnapshot, world, type Group, type Snapshot } from './core/model.ts
 import { observe, selfOf } from './core/observe.ts';
 import { executeKill, type KillRequest } from './core/kill.ts';
 import { actionsLog, defaultPaths } from './core/paths.ts';
-import { DEFAULT_PORT, dashboardUrl, findRunning, serve } from './server.ts';
-import { ensureServer } from './launch.ts';
+import { DEFAULT_PORT, dashboardUrl, serve } from './server.ts';
+import { ensureServer, findServer } from './launch.ts';
 import { describeGroup, runHook } from './hook.ts';
 
 const USAGE = `usage: claude-watch <command>
@@ -84,13 +84,15 @@ async function main(): Promise<number> {
   const cmd = argv[0];
 
   if (cmd === 'serve') {
-    const token = process.env.CLAUDE_WATCH_TOKEN;
-    delete process.env.CLAUDE_WATCH_TOKEN;
-    const running = await findRunning(paths);
-    if (running) { console.log(`already running: ${dashboardUrl(running)}`); return 0; }
+    // Started by the hook: the token arrives on stdin, and this process's output goes to server.log,
+    // so the token is never printed there.
+    const spawned = process.env.CLAUDE_WATCH_TOKEN_STDIN === '1';
+    const token = spawned ? (await readStdin()).trim() || undefined : undefined;
+    const running = findServer(paths, { listening: true });
+    if (running && running.pid !== process.pid) { console.log(`already running: ${dashboardUrl(running)}`); return 0; }
     try {
       const r = await serve({ paths, port: Number(process.env.CLAUDE_WATCH_PORT) || DEFAULT_PORT, token, onIdle: () => { r.close().then(() => process.exit(0)); } });
-      console.log(`${new Date().toISOString()} claude-watch serving ${dashboardUrl(r.info)}`);
+      console.log(`${new Date().toISOString()} claude-watch serving ${spawned ? `on http://127.0.0.1:${r.info.port}` : dashboardUrl(r.info)}`);
       const stop = () => { r.close().then(() => process.exit(0)); };
       process.on('SIGTERM', stop);
       process.on('SIGINT', stop);
@@ -104,7 +106,8 @@ async function main(): Promise<number> {
   }
 
   if (cmd === 'open') {
-    const { url } = await ensureServer(paths);
+    let url: string;
+    try { ({ url } = await ensureServer(paths)); } catch (e: any) { console.error(e?.message ?? e); return 1; }
     console.log(url);
     if (!flag('--no-browser')) {
       try { spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref(); } catch {}
@@ -144,7 +147,8 @@ async function main(): Promise<number> {
     const cli = path.join(import.meta.dirname, 'cli.ts');
     const snippet = {
       hooks: {
-        SessionStart: [{ hooks: [{ type: 'command', command: `node ${cli} hook`, timeout: 10 }] }],
+        // Absolute node: Claude started from an editor may have a different (older) node on PATH.
+        SessionStart: [{ hooks: [{ type: 'command', command: `"${process.execPath}" "${cli}" hook`, timeout: 10 }] }],
       },
     };
     console.log(`Merge this into ~/.claude/settings.json (it runs on every session start, resume, clear and compact):\n\n${JSON.stringify(snippet, null, 2)}`);
