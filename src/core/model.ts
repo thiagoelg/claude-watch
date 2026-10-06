@@ -16,6 +16,8 @@ export interface Member {
   role: 'claude' | 'command';
   /** Set when this process can never be signalled (it is Claude, or this tool, or its ancestor). */
   protectedReason?: string;
+  /** Whether this single process may be killed on its own (same checks as a single-process kill). */
+  killable: boolean;
 }
 
 export interface Group {
@@ -179,6 +181,7 @@ export function buildSnapshot(input: Input): Snapshot {
       startedAt: p.startedAt, rssKb: p.rssKb, ports: portsByPid(p),
       role: claudeReason(w, p) ? 'claude' : 'command',
       protectedReason: prot,
+      killable: g.status !== 'unattributed' && !memberRefusal(w, p, sessionId),
     });
   }
 

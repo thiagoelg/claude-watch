@@ -164,8 +164,9 @@ function finish(deps: KillDeps, req: KillRequest, r: KillResult): KillResult {
   if (deps.logFile) {
     const target = req.target.kind === 'group' ? groupId(req.target.sessionId, req.target.sid) : key(req.target);
     try {
-      fs.mkdirSync(path.dirname(deps.logFile), { recursive: true });
-      fs.appendFileSync(deps.logFile, JSON.stringify({ ts: new Date().toISOString(), target, ...r }) + '\n');
+      // Command lines can carry secrets (tokens in argv), so the log is private to the user.
+      fs.mkdirSync(path.dirname(deps.logFile), { recursive: true, mode: 0o700 });
+      fs.appendFileSync(deps.logFile, JSON.stringify({ ts: new Date().toISOString(), target, ...r }) + '\n', { mode: 0o600 });
     } catch {}
   }
   return r;

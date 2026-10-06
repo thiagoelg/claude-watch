@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>claude-watch</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --ink: #1d1c1a; --muted: #6b6860; --line: #e3e0d8;
+    --ghost: #b4461f; --ghost-bg: #fbeee8; --active: #2f6f4f; --active-bg: #e8f3ec;
+    --neutral-bg: #efede7; --danger: #b3261e; --focus: #3d5afe;
+    --mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #1f1f1c; --ink: #ecebe6; --muted: #9c998f; --line: #34332e;
+      --ghost: #f08a5d; --ghost-bg: #3a231a; --active: #6fcf97; --active-bg: #1c2f24;
+      --neutral-bg: #2a2925; --danger: #ff6b5e; --focus: #8c9eff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); }
+  header { position: sticky; top: 0; z-index: 1; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .bar { max-width: 1100px; margin: 0 auto; padding: 14px 16px; display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+  h1 { font: 600 16px/1 var(--mono); margin: 0; letter-spacing: -0.02em; }
+  .stats { display: flex; gap: 14px; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
+  .stats b { color: var(--ink); font-weight: 600; }
+  .stats .g b { color: var(--ghost); }
+  .conn { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .conn.ok .dot { background: var(--active); }
+  .conn.down .dot { background: var(--danger); }
+  main { max-width: 1100px; margin: 0 auto; padding: 8px 16px 48px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 28px 0 10px; font-weight: 600; }
+  .empty { color: var(--muted); padding: 14px 0; }
+  .session { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px; overflow: hidden; }
+  .session.ghost { border-color: color-mix(in srgb, var(--ghost) 45%, var(--line)); }
+  .shead { padding: 12px 14px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  .sname { font-weight: 600; }
+  .sid, .cwd { font: 12px var(--mono); color: var(--muted); }
+  .cwd { overflow-wrap: anywhere; }
+  .badge { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 999px; }
+  .badge.ghost { color: var(--ghost); background: var(--ghost-bg); }
+  .badge.active { color: var(--active); background: var(--active-bg); }
+  .badge.unattributed { color: var(--muted); background: var(--neutral-bg); }
+  .noproc { padding: 10px 14px; color: var(--muted); font-size: 13px; }
+  .group { border-top: 1px solid var(--line); }
+  .group:first-of-type { border-top: 0; }
+  .ghead { display: flex; gap: 10px; align-items: center; padding: 8px 14px; background: color-mix(in srgb, var(--neutral-bg) 55%, transparent); flex-wrap: wrap; }
+  .ghead .sid { color: var(--ink); }
+  .refusal { font-size: 12px; color: var(--muted); }
+  .spacer { flex: 1; }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td, th { padding: 6px 14px; text-align: left; vertical-align: top; white-space: nowrap; }
+  th { font-weight: 500; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  td.cmd { font-family: var(--mono); font-size: 12px; white-space: normal; overflow-wrap: anywhere; min-width: 260px; }
+  .cmdtext { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+  .cmdtext.open { display: block; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  tr.claude td { color: var(--muted); }
+  .port { font: 12px var(--mono); background: var(--neutral-bg); border-radius: 4px; padding: 1px 5px; margin-right: 3px; }
+  .tag { font-size: 11px; color: var(--muted); font-family: var(--sans); }
+  button { font: 500 12px var(--sans); border-radius: 6px; padding: 4px 10px; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  button.kill { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
+  button.kill:hover { background: color-mix(in srgb, var(--danger) 10%, var(--panel)); }
+  button.small { padding: 2px 8px; font-size: 11px; }
+  button.primary { background: var(--danger); color: #fff; border-color: var(--danger); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .result { margin: 0 14px 10px; padding: 8px 10px; border-radius: 6px; font-size: 12px; background: var(--neutral-bg); }
+  .result.bad { color: var(--danger); }
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); max-width: min(560px, calc(100vw - 32px)); padding: 20px; }
+  dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+  dialog h3 { margin: 0 0 8px; font-size: 16px; }
+  dialog ul { font: 12px var(--mono); padding-left: 18px; max-height: 40vh; overflow: auto; overflow-wrap: anywhere; }
+  dialog .warn { color: var(--danger); font-weight: 500; }
+  dialog input { width: 100%; font: 14px var(--mono); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); margin: 6px 0 2px; }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  @media (max-width: 640px) {
+    td.hide-sm, th.hide-sm { display: none; }
+    .conn { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>claude-watch</h1>
+    <div class="stats" id="stats"></div>
+    <div class="conn" id="conn"><span class="dot"></span><span id="conntext">connecting…</span></div>
+  </div>
+</header>
+<main id="main"><p class="empty">Loading…</p></main>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgform">
+    <h3 id="dlgtitle"></h3>
+    <div id="dlgbody"></div>
+    <div class="actions">
+      <button value="cancel" type="submit">Cancel</button>
+      <button value="ok" type="submit" class="primary" id="dlgok">Kill</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+'use strict';
+const token = new URLSearchParams(location.search).get('t') || '';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const short = (id) => (id || '').slice(0, 8);
+const results = new Map();     // group id -> { text, bad, at }
+const expanded = new Set();    // "pid:starttime" of command lines shown in full
+let snap = null;
+
+function age(ms) {
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 60) return Math.round(s) + 's';
+  if (s < 3600) return Math.round(s / 60) + 'm';
+  if (s < 86400) return (s / 3600).toFixed(1) + 'h';
+  return (s / 86400).toFixed(1) + 'd';
+}
+const mem = (kb) => kb >= 1024 * 1024 ? (kb / 1048576).toFixed(1) + ' GB' : kb >= 1024 ? Math.round(kb / 1024) + ' MB' : kb + ' KB';
+
+function sessionOf(id) { return snap.sessions.find((s) => s.sessionId === id); }
+function confirmWord(id) { const s = sessionOf(id); return (s && s.name) || short(id); }
+
+function memberRow(g, m) {
+  const ports = m.ports.map((p) => `<span class="port">:${p}</span>`).join('');
+  const tag = m.protectedReason ? ` <span class="tag">— ${esc(m.protectedReason)}</span>` : '';
+  const btn = m.killable
+    ? `<button class="kill small" data-act="proc" data-group="${esc(g.id)}" data-pid="${m.pid}">kill</button>`
+    : '';
+  return `<tr class="${m.role}">
+    <td class="num">${m.pid}</td>
+    <td class="cmd"><span class="cmdtext ${expanded.has(m.pid + ':' + m.starttime) ? 'open' : ''}" data-key="${m.pid}:${m.starttime}" title="click to expand">${esc(m.cmdline)}</span>${tag}</td>
+    <td>${ports}</td>
+    <td class="num hide-sm">${age(m.startedAt)}</td>
+    <td class="num hide-sm">${mem(m.rssKb)}</td>
+    <td>${btn}</td>
+  </tr>`;
+}
+
+function groupBlock(g) {
+  const n = g.members.length;
+  const action = g.killable
+    ? `<button class="kill" data-act="group" data-group="${esc(g.id)}">Kill group (${n})</button>`
+    : `<span class="refusal">${esc(g.refusal || '')}</span>`;
+  const r = results.get(g.id);
+  return `<div class="group">
+    <div class="ghead"><span class="sid">sid ${g.sid}</span><span class="tag">${n} process${n === 1 ? '' : 'es'}</span><span class="spacer"></span>${action}</div>
+    ${r ? `<div class="result ${r.bad ? 'bad' : ''}">${esc(r.text)}</div>` : ''}
+    <div class="tablewrap"><table>
+      <thead><tr><th class="num">pid</th><th>command</th><th>ports</th><th class="num hide-sm">age</th><th class="num hide-sm">mem</th><th></th></tr></thead>
+      <tbody>${g.members.map((m) => memberRow(g, m)).join('')}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function sessionBlock(id, groups, status) {
+  const s = id ? sessionOf(id) : null;
+  const name = id ? ((s && s.name) || short(id)) : 'No session id';
+  const anchor = s && s.claudePid ? `<span class="sid">claude pid ${s.claudePid}</span>` : '';
+  const body = groups.length ? groups.map(groupBlock).join('') : '<div class="noproc">No background processes.</div>';
+  return `<section class="session ${status}">
+    <div class="shead">
+      <span class="badge ${status}">${status === 'ghost' ? 'ended' : status}</span>
+      <span class="sname">${esc(name)}</span>
+      ${id ? `<span class="sid">${esc(id)}</span>` : ''}
+      ${anchor}
+      ${s && s.cwd ? `<span class="cwd">${esc(s.cwd)}</span>` : ''}
+    </div>
+    ${body}
+  </section>`;
+}
+
+function render() {
+  if (!snap) return;
+  const bySession = (status) => {
+    const m = new Map();
+    for (const g of snap.groups.filter((x) => x.status === status)) {
+      if (!m.has(g.sessionId)) m.set(g.sessionId, []);
+      m.get(g.sessionId).push(g);
+    }
+    return m;
+  };
+  const ghosts = bySession('ghost');
+  const active = bySession('active');
+  for (const s of snap.sessions) if (s.live && !active.has(s.sessionId)) active.set(s.sessionId, []);
+  const unattributed = snap.groups.filter((g) => g.status === 'unattributed');
+
+  const ghostProcs = [...ghosts.values()].flat().reduce((n, g) => n + g.members.length, 0);
+  $('stats').innerHTML = `
+    <span class="g"><b>${ghostProcs}</b> ghost process${ghostProcs === 1 ? '' : 'es'}</span>
+    <span><b>${active.size}</b> active session${active.size === 1 ? '' : 's'}</span>
+    <span><b>${snap.groups.filter((g) => g.status === 'active').reduce((n, g) => n + g.members.length, 0)}</b> active processes</span>`;
+
+  let html = '<h2>Left behind by ended sessions</h2>';
+  html += ghosts.size ? [...ghosts].map(([id, gs]) => sessionBlock(id, gs, 'ghost')).join('') : '<p class="empty">Nothing left behind. 🎉</p>';
+  html += '<h2>Active sessions</h2>';
+  html += active.size ? [...active].map(([id, gs]) => sessionBlock(id, gs, 'active')).join('') : '<p class="empty">No live Claude Code sessions.</p>';
+  if (unattributed.length) html += '<h2>Without a session id</h2>' + sessionBlock(null, unattributed, 'unattributed');
+  $('main').innerHTML = html;
+}
+
+/** Show the confirm dialog; resolves to the typed confirmation (or '' for ghosts), or null if cancelled. */
+function ask({ title, items, active, word }) {
+  return new Promise((resolve) => {
+    const dlg = $('dlg');
+    $('dlgtitle').textContent = title;
+    $('dlgbody').innerHTML = `
+      <p>SIGTERM, then SIGKILL after 5 seconds for anything still running:</p>
+      <ul>${items.map((m) => `<li>${m.pid} — ${esc(m.cmdline.slice(0, 160))}</li>`).join('')}</ul>
+      ${active ? `<p class="warn">This session is still active. Claude may be relying on these processes.</p>
+        <label>Type <b>${esc(word)}</b> to confirm<input id="dlgword" autocomplete="off" spellcheck="false"></label>` : ''}`;
+    const ok = $('dlgok');
+    const input = $('dlgword');
+    ok.disabled = !!active;
+    if (input) input.addEventListener('input', () => { ok.disabled = input.value !== word; });
+    dlg.onclose = () => resolve(dlg.returnValue === 'ok' ? (input ? input.value : '') : null);
+    dlg.returnValue = '';
+    dlg.showModal();
+    (input || ok).focus();
+  });
+}
+
+async function kill(g, target, items) {
+  const active = g.status === 'active';
+  const word = active ? confirmWord(g.sessionId) : '';
+  const title = target.kind === 'group' ? `Kill ${items.length} process${items.length === 1 ? '' : 'es'} in sid ${g.sid}?` : `Kill pid ${target.pid}?`;
+  const confirm = await ask({ title, items, active, word });
+  if (confirm === null) return;
+  results.set(g.id, { text: 'Killing…', bad: false });
+  render();
+  let r;
+  try {
+    const res = await fetch('/kill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Claude-Watch-Token': token },
+      body: JSON.stringify({ target, expect: items.map((m) => ({ pid: m.pid, starttime: m.starttime })), confirm: active ? confirm : undefined }),
+    });
+    r = await res.json();
+    if (!res.ok) r = { ok: false, outcome: 'refused', refusal: r.error || res.statusText };
+  } catch (e) {
+    r = { ok: false, outcome: 'refused', refusal: String(e) };
+  }
+  const text = r.outcome === 'refused' ? `Refused: ${r.refusal}`
+    : r.outcome === 'terminated' ? `Terminated ${r.members.length} process${r.members.length === 1 ? '' : 'es'}.`
+    : r.outcome === 'killed' ? `Done; ${r.signalled.filter((s) => s.signal === 'SIGKILL').length} needed SIGKILL.`
+    : `Partly done; still alive: ${r.survivors.join(', ')}`;
+  results.set(g.id, { text, bad: !r.ok });
+  setTimeout(() => { results.delete(g.id); render(); }, 15000);
+  render();
+}
+
+$('main').addEventListener('click', (e) => {
+  const c = e.target.closest('.cmdtext');
+  if (c) {
+    const k = c.dataset.key;
+    expanded.has(k) ? expanded.delete(k) : expanded.add(k);
+    c.classList.toggle('open');
+    return;
+  }
+  const b = e.target.closest('button[data-act]');
+  if (!b || !snap) return;
+  const g = snap.groups.find((x) => x.id === b.dataset.group);
+  if (!g) return;
+  if (b.dataset.act === 'group') {
+    kill(g, { kind: 'group', sessionId: g.sessionId, sid: g.sid }, g.members);
+  } else {
+    const m = g.members.find((x) => x.pid === Number(b.dataset.pid));
+    if (m) kill(g, { kind: 'process', pid: m.pid, starttime: m.starttime }, [m]);
+  }
+});
+
+function connect() {
+  const es = new EventSource('/events?t=' + encodeURIComponent(token));
+  es.onopen = () => { $('conn').className = 'conn ok'; $('conntext').textContent = 'live'; };
+  es.onmessage = (ev) => {
+    snap = JSON.parse(ev.data);
+    $('conntext').textContent = 'live · ' + new Date(snap.takenAt).toLocaleTimeString();
+    // Don't re-render under an open dialog: the snapshot it shows is the one being confirmed.
+    if (!$('dlg').open) render();
+  };
+  es.onerror = () => { $('conn').className = 'conn down'; $('conntext').textContent = 'disconnected — retrying'; };
+}
+$('dlg').addEventListener('close', () => render());
+connect();
+</script>
+</body>
+</html>
