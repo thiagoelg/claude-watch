@@ -1,0 +1,21 @@
+{
+  "name": "claude-watch",
+  "version": "0.1.0",
+  "description": "See, and safely clean up, the processes Claude Code starts",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "bin": {
+    "claude-watch": "src/cli.ts"
+  },
+  "scripts": {
+    "start": "node src/cli.ts serve",
+    "test": "node --test --test-concurrency=1 'test/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2"
+  }
+}
