@@ -23,11 +23,12 @@ import type { Identity, Port, Proc, ProcSource } from './proc.ts';
 const MONTHS: Record<string, number> = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
 const LSTART = /([A-Z][a-z]{2}) ([A-Z][a-z]{2})\s+(\d{1,2}) (\d\d):(\d\d):(\d\d) (\d{4})/;
 
-/** `ps -o lstart` ("Tue Oct  6 02:06:36 2026", local time, LC_ALL=C) -> epoch ms. */
-export function parseLstart(s: string): number | null {
+/** `ps -o lstart` ("Tue Oct  6 02:06:36 2026", LC_ALL=C) -> epoch ms. Local time unless `utc`. */
+export function parseLstart(s: string, utc = false): number | null {
   const m = LSTART.exec(s);
   if (!m || MONTHS[m[2]] === undefined) return null;
-  return new Date(Number(m[7]), MONTHS[m[2]], Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6])).getTime();
+  const f = [Number(m[7]), MONTHS[m[2]], Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6])] as const;
+  return utc ? Date.UTC(...f) : new Date(...f).getTime();
 }
 
 export interface PsRow {
@@ -126,10 +127,12 @@ export function listeningFromLsof(out: string): Map<number, Port> {
 }
 
 /**
- * Does a session record describe this process? Claude Code's procStart format on macOS is not
- * verified yet, so every plausible encoding of a start time is accepted (epoch s/ms/us, or a
- * date string), and failing those, a process that started within a minute before the record's
- * startedAt. Each variant still rejects a pid recycled hours later.
+ * Does a session record describe this process? Claude Code on macOS writes procStart in the
+ * `ps -o lstart` format in UTC ("Tue Oct  6 16:14:07 2026", seen with 2.1.284 and 2.1.291).
+ * Other encodings (epoch s/ms/us, ISO date) are still accepted, and failing all of them, a
+ * process that started within a minute before the record's startedAt. That fallback only ever
+ * makes a session look live, which is the safe direction (stronger kill confirmation). Each
+ * variant still rejects a pid recycled hours later.
  */
 export function darwinMatchesStart(p: Pick<Proc, 'starttime' | 'startedAt'>, procStart: string, startedAt?: number): boolean {
   const sec = p.starttime;
@@ -137,7 +140,7 @@ export function darwinMatchesStart(p: Pick<Proc, 'starttime' | 'startedAt'>, pro
     const n = Number(procStart);
     for (const asSec of [n, n / 1e3, n / 1e6]) if (Math.abs(asSec - sec) <= 1) return true;
   } else if (procStart) {
-    const t = Date.parse(procStart);
+    const t = parseLstart(procStart, true) ?? Date.parse(procStart);
     if (!Number.isNaN(t) && Math.abs(t / 1000 - sec) <= 1) return true;
   }
   if (startedAt !== undefined) return p.startedAt <= startedAt + 2000 && p.startedAt >= startedAt - 60_000;

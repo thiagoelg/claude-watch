@@ -26,8 +26,12 @@ after(() => {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 test('a detached command from an ended session is a ghost and can be killed', async () => {
-  // Exactly like Claude Code's Bash tool: a detached shell (own session) running a child.
-  const child = spawn('sh', ['-c', 'sleep 120 & sleep 121 & wait'], {
+  // Like Claude Code's Bash tool: a detached leader (own session) running two children. node, not
+  // sh/sleep: macOS hides the environment of Apple's own binaries, so those would not be listed.
+  const tree = `const { spawn } = require('node:child_process');
+    for (const t of [120, 121]) spawn(process.execPath, ['-e', 'setTimeout(() => {}, ' + t * 1000 + ')'], { stdio: 'ignore' });
+    setTimeout(() => {}, 122_000);`;
+  const child = spawn(process.execPath, ['-e', tree], {
     detached: true, stdio: 'ignore',
     env: { ...cleanEnv(process.env), CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: FAKE_SESSION },
   });

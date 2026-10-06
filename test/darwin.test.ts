@@ -91,6 +91,13 @@ describe('darwin session matching', () => {
     assert.ok(darwinMatchesStart(p, new Date(start).toISOString()));
   });
 
+  test('reads the lstart-in-UTC procStart that Claude Code writes on macOS', () => {
+    // Observed: procStart "Tue Oct  6 16:14:07 2026" for a process whose local lstart (UTC-3) was 13:14:07.
+    const q = { starttime: Date.UTC(2026, 9, 6, 16, 14, 7) / 1000, startedAt: Date.UTC(2026, 9, 6, 16, 14, 7) };
+    assert.ok(darwinMatchesStart(q, 'Tue Oct  6 16:14:07 2026'));
+    assert.ok(!darwinMatchesStart(q, 'Tue Oct  6 19:14:07 2026'));
+  });
+
   test('falls back to the record startedAt (the process starts shortly before the session)', () => {
     assert.ok(darwinMatchesStart(p, 'opaque-value', start + 1500));
     assert.ok(!darwinMatchesStart(p, 'opaque-value', start + 3 * 3600_000));
