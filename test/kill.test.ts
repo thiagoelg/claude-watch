@@ -66,6 +66,12 @@ describe('planKill', () => {
     assert.equal(plan.ok, false);
   });
 
+  test('an accepted hidden-environment wrapper can be killed on its own', () => {
+    fw = typicalWorld().proc({ pid: 200, ppid: 100, comm: 'zsh', env: null });
+    const plan = planKill(look(fw)(), { target: { kind: 'process', pid: 200, starttime: st(200) }, expect: [], confirm: 'proj-a1' });
+    assert.equal(plan.ok, true, !plan.ok ? plan.refusal : '');
+  });
+
   test('a single row of a refused group is still killable on its own', () => {
     fw = ghostWorld().proc({ pid: 303, ppid: 300, sid: 300, env: claudeEnv(SESSION_A) });   // a stranger in sid 300
     assert.equal(planKill(look(fw)(), groupReq(SESSION_B, 300, [300, 301])).ok, false);

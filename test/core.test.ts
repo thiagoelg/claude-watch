@@ -144,6 +144,54 @@ describe('model', () => {
     assert.deepEqual(snap(fw).groups.map((g) => g.status), ['ghost', 'active']);
   });
 
+  describe('wrappers with a hidden environment (macOS /bin/zsh)', () => {
+    /** typicalWorld, but the shell wrapper's environment is unreadable, as on macOS. */
+    const hidden = () => typicalWorld().proc({ pid: 200, ppid: 100, comm: 'zsh', exe: '/bin/zsh', argv: ['/bin/zsh', '-c', 'npm run dev'], env: null });
+
+    test('a wrapper led by its session\'s Claude joins the group', () => {
+      fw = hidden();
+      const g = group(snap(fw), 200)!;
+      assert.equal(g.killable, true, g.refusal ?? '');
+      assert.deepEqual(g.members.map((m) => m.pid), [200, 201]);
+      assert.equal(g.members[0].killable, true);
+    });
+
+    test('an orphaned wrapper (parent pid 1) of an ended session joins its ghost group', () => {
+      fw = hidden().proc({ pid: 300, ppid: 1, env: null }).proc({ pid: 301, ppid: 300, sid: 300, env: claudeEnv(SESSION_B) });
+      const g = group(snap(fw), 300)!;
+      assert.equal(g.status, 'ghost');
+      assert.equal(g.killable, true, g.refusal ?? '');
+      assert.deepEqual(g.members.map((m) => m.pid), [300, 301]);
+    });
+
+    test('a hidden child of an accepted wrapper joins; one under another parent does not', () => {
+      fw = hidden().proc({ pid: 202, ppid: 200, sid: 200, env: null }).proc({ pid: 203, ppid: 201, sid: 200, env: null });
+      const g = group(snap(fw), 200)!;
+      assert.deepEqual(g.members.map((m) => m.pid), [200, 201, 202]);
+      assert.match(g.refusal!, /sid 200 also contains 1 process/);
+    });
+
+    test('a wrapper whose parent is neither Claude nor pid 1 stays an outsider', () => {
+      fw = hidden().proc({ pid: 200, ppid: 555, env: null });
+      const g = group(snap(fw), 200)!;
+      assert.deepEqual(g.members.map((m) => m.pid), [201]);
+      assert.match(g.refusal!, /sid 200 also contains 1 process/);
+    });
+
+    test('a wrapper is not accepted when its group mixes sessions or holds a non-Claude process', () => {
+      fw = hidden().proc({ pid: 202, ppid: 200, sid: 200, env: claudeEnv(SESSION_B) });
+      assert.equal(group(snap(fw), 200, SESSION_A)!.members.some((m) => m.pid === 200), false);
+      fw.cleanup();
+      fw = hidden().proc({ pid: 202, ppid: 200, sid: 200, env: { HOME: '/home/u' } });
+      assert.equal(group(snap(fw), 200)!.members.some((m) => m.pid === 200), false);
+    });
+
+    test('a group of only hidden processes is not listed', () => {
+      fw = typicalWorld().proc({ pid: 300, ppid: 1, env: null }).proc({ pid: 301, ppid: 300, sid: 300, env: null });
+      assert.equal(group(snap(fw), 300), undefined);
+    });
+  });
+
   test('world() maps live sessions', () => {
     fw = typicalWorld();
     assert.deepEqual([...world(observe(fw.paths, SELF)).live.keys()], [SESSION_A]);

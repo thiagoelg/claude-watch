@@ -120,6 +120,13 @@ time (echo '{"source":"startup"}' | node src/cli.ts hook | cat)
 - Process start times have one-second resolution (identity is `(pid, start second)`).
 - Environments of other users' processes, and possibly of hardened processes, are not visible;
   such processes are simply not listed.
+- macOS hides the environment of Apple's own binaries (`/bin/zsh`, `/bin/sh`, `/bin/sleep`), even
+  from the same user. A command made only of such binaries is not listed. The `/bin/zsh` wrapper
+  of Claude's Bash tool still joins its group under strict conditions (see `hiddenWrappers` in
+  `src/core/model.ts`).
+- Claude Code writes `procStart` as `ps -o lstart` text in UTC (`"Tue Oct  6 16:14:07 2026"`).
+- `ps -o comm` is the name the program was started with, not always its full path. A Claude
+  started from a terminal shows as `claude`, so protection by binary path does not apply to it.
 - `ps -E` output is unquoted, so environment values containing ` NAME=` text are split
   wrongly. If `CLAUDECODE` or `CLAUDE_CODE_SESSION_ID` is parsed more than once, it is dropped
   (the process becomes unattributed / an outsider, which only blocks kills).

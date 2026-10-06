@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Proc, ProcSource } from './proc.ts';
 import {
-  groupId, groupProcs, groupRefusal, memberRefusal, sessionOf, statusOf,
+  groupId, groupProcs, groupRefusal, memberRefusal, memberSession, statusOf,
   type Status, type World,
 } from './model.ts';
 
@@ -51,7 +51,7 @@ export function planKill(w: World, req: KillRequest): Plan {
     const { pid, starttime } = req.target;
     const p = w.procs.get(pid);
     if (!p || p.starttime !== starttime) return { ok: false, refusal: `pid ${pid} is gone or is now a different process` };
-    sessionId = sessionOf(p);
+    sessionId = memberSession(w, p) ?? null;
     const refusal = memberRefusal(w, p, sessionId);
     if (refusal) return { ok: false, status: statusOf(w, sessionId), refusal };
     members = [p];

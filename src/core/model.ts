@@ -72,11 +72,47 @@ export function sessionOf(p: Proc): string | null {
 
 export const groupId = (sessionId: string | null, sid: number) => `${sessionId ?? 'none'}:${sid}`;
 
+/**
+ * macOS hides the environment of Apple's own binaries, so the /bin/zsh wrapper that Claude's Bash
+ * tool runs each command in has env === null there. Such a process joins its group's session only
+ * when all of these hold:
+ * - its environment is unreadable (not merely lacking CLAUDECODE);
+ * - it leads its group (pid === sid), or its parent is an accepted wrapper in the same group;
+ * - the leader's parent is that session's live Claude process, or pid 1 (orphaned when Claude exited);
+ * - the group has readable processes, and every one is Claude-started from that one session.
+ * Returns pid -> session id.
+ */
+function hiddenWrappers(procs: Map<number, Proc>, live: Map<string, SessionRecord>): Map<number, string> {
+  const bySid = new Map<number, Proc[]>();
+  for (const p of procs.values()) bySid.set(p.sid, [...(bySid.get(p.sid) ?? []), p]);
+  const out = new Map<number, string>();
+  for (const [sid, ps] of bySid) {
+    const leader = procs.get(sid);
+    if (!leader || leader.sid !== sid || leader.env !== null) continue;
+    const visible = ps.filter((p) => p.env !== null);
+    const sessions = new Set(visible.map((p) => (isClaudeStarted(p) ? sessionOf(p) : null)));
+    const [session] = sessions;
+    if (!visible.length || sessions.size !== 1 || !session) continue;
+    if (leader.ppid !== 1 && leader.ppid !== live.get(session)?.pid) continue;
+    out.set(leader.pid, session);
+    const hidden = ps.filter((p) => p.env === null && p !== leader);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const p of hidden) {
+        if (!out.has(p.pid) && out.has(p.ppid)) { out.set(p.pid, session); grew = true; }
+      }
+    }
+  }
+  return out;
+}
+
 /** Everything the pure checks need to know about the world, derived once per snapshot. */
 export interface World {
   procs: Map<number, Proc>;
   live: Map<string, SessionRecord>;
   claudeExes: Set<string>;
+  /** Hidden-environment wrappers accepted into a session's group (see hiddenWrappers). */
+  wrappers: Map<number, string>;
   self: Self;
 }
 
@@ -90,7 +126,13 @@ export function world(input: Pick<Input, 'procs' | 'records' | 'self' | 'matches
     // Claude, so only a dedicated binary's exe is used for matching.
     if (exe && !GENERIC_RUNTIMES.has(path.basename(exe))) claudeExes.add(exe);
   }
-  return { procs, live, claudeExes, self: input.self };
+  return { procs, live, claudeExes, wrappers: hiddenWrappers(procs, live), self: input.self };
+}
+
+/** The session whose group `p` belongs to (null: unattributed), or undefined if it is in none. */
+export function memberSession(w: World, p: Proc): string | null | undefined {
+  if (isClaudeStarted(p)) return sessionOf(p);
+  return w.wrappers.get(p.pid);
 }
 
 export function isLiveSession(w: World, sessionId: string | null): boolean {
@@ -124,8 +166,8 @@ export function statusOf(w: World, sessionId: string | null): Status {
  */
 export function memberRefusal(w: World, p: Proc, sessionId: string | null): string | undefined {
   if (p.uid !== process.getuid?.()) return `pid ${p.pid} belongs to another user`;
-  if (!isClaudeStarted(p)) return `pid ${p.pid} was not started by Claude Code`;
-  const s = sessionOf(p);
+  const s = memberSession(w, p);
+  if (s === undefined) return `pid ${p.pid} was not started by Claude Code`;
   if (!s || !sessionId) return `pid ${p.pid} has no session id`;
   if (s !== sessionId) return `pid ${p.pid} belongs to a different session`;
   const prot = protectedReason(w, p);
@@ -135,7 +177,7 @@ export function memberRefusal(w: World, p: Proc, sessionId: string | null): stri
 /** The members of group (sessionId, sid) in this world, sorted by pid. */
 export function groupProcs(w: World, sessionId: string | null, sid: number): Proc[] {
   return [...w.procs.values()]
-    .filter((p) => isClaudeStarted(p) && p.sid === sid && sessionOf(p) === sessionId)
+    .filter((p) => p.sid === sid && memberSession(w, p) === sessionId)
     .sort((a, b) => a.pid - b.pid);
 }
 
@@ -144,7 +186,7 @@ export function groupProcs(w: World, sessionId: string | null, sid: number): Pro
  * sid also holds processes from elsewhere, since they would be left in a half-killed tree.
  */
 export function sidStrangers(w: World, sessionId: string | null, sid: number): Proc[] {
-  return [...w.procs.values()].filter((p) => p.sid === sid && !(isClaudeStarted(p) && sessionOf(p) === sessionId));
+  return [...w.procs.values()].filter((p) => p.sid === sid && memberSession(w, p) !== sessionId);
 }
 
 /** Group-level refusal (spec checks 2-4, without the stale-view check, which needs the request). */
@@ -169,8 +211,8 @@ export function buildSnapshot(input: Input): Snapshot {
 
   const groups = new Map<string, Group>();
   for (const p of w.procs.values()) {
-    if (!isClaudeStarted(p)) continue;
-    const sessionId = sessionOf(p);
+    const sessionId = memberSession(w, p);
+    if (sessionId === undefined) continue;
     const id = groupId(sessionId, p.sid);
     let g = groups.get(id);
     if (!g) {
