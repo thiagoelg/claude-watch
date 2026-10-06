@@ -1,2 +1,24 @@
+# Dependencies
 node_modules/
+
+# Logs and runtime state (claude-watch keeps its own in ~/.claude-watch, but a CLAUDE_WATCH_DIR
+# pointed inside the repo must not get committed: server.json holds the dashboard token)
+*.log
+server.json
+server.lock
+.claude-watch/
+
+# Test and tool output
+coverage/
 .playwright-mcp/
+
+# Local environment
+.env
+.env.*
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
