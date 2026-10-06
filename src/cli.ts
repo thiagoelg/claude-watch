@@ -9,7 +9,9 @@ import { actionsLog, defaultPaths, settingsFile } from './core/paths.ts';
 import { procSource } from './core/proc.ts';
 import { DEFAULT_PORT, dashboardUrl, serve } from './server.ts';
 import { ensureServer, findServer } from './launch.ts';
-import { describeGroup, hookEntry, installHook, runHook } from './hook.ts';
+import { describeGroup, runHook } from './hook.ts';
+import { ccstatuslineSettings, hookEntry, installCcstatuslineWidget, installHook, installStatusLine, type InstallResult } from './install.ts';
+import { statusLine } from './statusline.ts';
 
 const USAGE = `usage: claude-watch <command>
 
@@ -21,7 +23,12 @@ const USAGE = `usage: claude-watch <command>
                                      dry-run unless --execute
   hook                               the SessionStart hook (reads hook JSON on stdin)
   install-hook [--write]             print the settings.json snippet for the hook;
-                                     --write adds it to ~/.claude/settings.json`;
+                                     --write adds it to ~/.claude/settings.json
+  statusline [--wrap <command>]      the status line: a clickable dashboard link and the ghost
+                                     count, after the output of <command> if given
+  install-statusline [--write] [--ccstatusline]
+                                     set Claude Code's status line to it (wrapping the one you
+                                     have), or add it as a ccstatusline widget; dry run unless --write`;
 
 const paths = defaultPaths();
 const argv = process.argv.slice(2);
@@ -172,18 +179,35 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  if (cmd === 'statusline') {
+    process.stdout.write(await statusLine(paths, await readStdin(), option('--wrap')) + '\n');
+    return 0;
+  }
+
+  // Absolute node: Claude started from an editor may have a different (older) node on PATH.
+  const ourCommand = (sub: string) => `"${stableNodePath()}" "${path.join(import.meta.dirname, 'cli.ts')}" ${sub}`;
+  const report = (r: InstallResult, file: string) => {
+    if (r.outcome === 'refused') { console.error(`not installed: ${r.reason}`); return 1; }
+    if (r.outcome === 'already-installed') console.log(`already installed in ${file}`);
+    else console.log(`installed in ${file}${r.backup ? ` (previous version: ${r.backup})` : ''}; it applies to new sessions`);
+    return 0;
+  };
+
+  if (cmd === 'install-statusline') {
+    const ccs = flag('--ccstatusline');
+    const file = ccs ? ccstatuslineSettings() : settingsFile(paths);
+    const install = ccs ? installCcstatuslineWidget : installStatusLine;
+    if (flag('--write')) return report(install(file, ourCommand('statusline')), file);
+    console.log(ccs
+      ? `--write adds a Custom Command widget to the end of the first line in ${file}:\n  ${ourCommand('statusline')}\n  (preserveColors on, so the link stays clickable; timeout 2000 ms)`
+      : `--write sets statusLine in ${file} to run:\n  ${ourCommand('statusline')} [--wrap <your current status line command>]\nYour current status line keeps running; the claude-watch link goes on a line of its own.`);
+    return 0;
+  }
+
   if (cmd === 'install-hook') {
-    const cli = path.join(import.meta.dirname, 'cli.ts');
-    // Absolute node: Claude started from an editor may have a different (older) node on PATH.
-    const command = `"${stableNodePath()}" "${cli}" hook`;
+    const command = ourCommand('hook');
     const file = settingsFile(paths);
-    if (flag('--write')) {
-      const r = installHook(file, command);
-      if (r.outcome === 'refused') { console.error(`not installed: ${r.reason}`); return 1; }
-      if (r.outcome === 'already-installed') console.log(`already installed in ${file}`);
-      else console.log(`installed in ${file}${r.backup ? ` (previous version: ${r.backup})` : ''}; it applies to new sessions`);
-      return 0;
-    }
+    if (flag('--write')) return report(installHook(file, command), file);
     const snippet = { hooks: { SessionStart: [hookEntry(command)] } };
     console.log(`Merge this into ${file} (it runs on every session start, resume, clear and compact),\nor run install-hook --write to add it:\n\n${JSON.stringify(snippet, null, 2)}`);
     return 0;

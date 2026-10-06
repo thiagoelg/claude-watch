@@ -23,4 +23,5 @@ export const sessionsDir = (p: Paths) => path.join(p.claudeDir, 'sessions');
 export const settingsFile = (p: Paths) => path.join(p.claudeDir, 'settings.json');
 export const serverFile = (p: Paths) => path.join(p.dataDir, 'server.json');
 export const serverLog = (p: Paths) => path.join(p.dataDir, 'server.log');
+export const statuslineCache = (p: Paths) => path.join(p.dataDir, 'statusline.json');
 export const actionsLog = (p: Paths) => path.join(p.dataDir, 'actions.log');

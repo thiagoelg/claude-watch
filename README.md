@@ -40,10 +40,11 @@ node src/cli.ts install-hook           # prints the snippet to merge into ~/.cla
 node src/cli.ts install-hook --write   # adds it for you (keeps a backup of the old file)
 ```
 
-On every session start and resume, the hook makes sure the dashboard is running and adds a short
-note to the new session: the dashboard URL and, if there are any, a summary of the ghosts
-(`2 ghost process group(s)… vite on :5173…`). It never kills anything, never fails a session
-start, and takes about 70 ms here (about 150 ms when it has to start the dashboard). On `clear` and `compact` it only keeps the server running.
+On every session start and resume, the hook makes sure the dashboard is running. It shows you
+one line with the dashboard URL (and the ghost count, if any), and gives Claude a short note with
+the URL and a summary of the ghosts (`2 ghost process group(s)… vite on :5173…`). It never kills
+anything, never fails a session start, and takes about 70 ms on Linux and 400 ms on macOS (more
+when it has to start the dashboard). On `clear` and `compact` it only keeps the server running.
 
 The dashboard server is started detached, with Claude's environment markers removed, so it is
 never itself counted as a Claude-started process — and so it can never become a ghost. That holds
@@ -53,6 +54,30 @@ environment or the log). Concurrent session starts share one server and one toke
 out until the server's own process holds the port, so if another program takes it first, nothing
 is started. The server exits
 after 10 minutes with no open tab.
+
+### Status line
+
+```sh
+node src/cli.ts install-statusline --write                 # Claude Code's own status line
+node src/cli.ts install-statusline --write --ccstatusline  # or a ccstatusline widget
+```
+
+Both show a clickable `claude-watch` link to the dashboard, in yellow with the ghost count when
+there are ghosts (`claude-watch: 2 ghosts`). Cmd+click (Ctrl+click on Linux) opens it. The link
+needs a terminal with OSC 8 hyperlinks (Ghostty, iTerm2, Kitty, WezTerm; not Terminal.app).
+
+- The first form sets `statusLine` in `~/.claude/settings.json`. If you already have a status
+  line command, it keeps running (`statusline --wrap '<your command>'`), and the link goes on a
+  line of its own below it.
+- The second form adds a Custom Command widget to the end of the first line in
+  `~/.config/ccstatusline/settings.json`, with "preserve colors" on so the link stays clickable.
+
+Without `--write`, both only print what they would change. With it, the old file is kept as
+`<file>.bak-<time>`.
+
+If the dashboard is not running, the status line starts it, so the link works while any session
+is open. The ghost count comes from a snapshot cached for 15 seconds and shared by all sessions,
+so a run takes about 0.1 s (0.4 s when it recounts).
 
 ## Killing safely
 
@@ -86,6 +111,7 @@ headers are sent. A running server is recognised by its exact process (pid + sta
 |---|---|
 | `~/.claude-watch/server.json` | running server's pid, port and token (mode 0600) |
 | `~/.claude-watch/server.log` | server output |
+| `~/.claude-watch/statusline.json` | the status line's cached ghost count |
 | `~/.claude-watch/actions.log` | one JSON line per kill or refusal (mode 0600: command lines can hold secrets) |
 
 `CLAUDE_WATCH_DIR`, `CLAUDE_CONFIG_DIR` and `CLAUDE_WATCH_PROC_ROOT` override the locations.

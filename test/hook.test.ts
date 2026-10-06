@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { installHook, runHook } from '../src/hook.ts';
+import { runHook } from '../src/hook.ts';
+import { installHook } from '../src/install.ts';
 import { cleanEnv } from '../src/launch.ts';
 import { FakeWorld, typicalWorld, claudeEnv, SESSION_B } from './fixtures.ts';
 
@@ -30,12 +31,14 @@ describe('hook', () => {
     assert.match(ctx, /node \/p\/node_modules\/\.bin\/vite on :5174/);
     assert.doesNotMatch(ctx, /shell-snapshots/);
     assert.ok(ctx.includes(URL));
+    assert.equal(JSON.parse(out!).systemMessage, `claude-watch: 1 ghost process group(s) left by ended sessions. Dashboard: ${URL}`);
   });
 
   test('with no ghosts it prints just the dashboard line', async () => {
     fw = typicalWorld();
-    const ctx = context(await runHook(JSON.stringify({ source: 'resume' }), fw.paths, ensure, {}));
-    assert.equal(ctx, `claude-watch dashboard (processes started by Claude Code): ${URL}`);
+    const out = await runHook(JSON.stringify({ source: 'resume' }), fw.paths, ensure, {});
+    assert.equal(context(out), `claude-watch dashboard (processes started by Claude Code): ${URL}`);
+    assert.equal(JSON.parse(out!).systemMessage, `claude-watch dashboard: ${URL}`);
   });
 
   test('the new session is not reported as a ghost before its record exists', async () => {
