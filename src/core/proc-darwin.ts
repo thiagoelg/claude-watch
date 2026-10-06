@@ -62,10 +62,15 @@ export function parsePsArgs(out: string): Map<number, string> {
   return map;
 }
 
+/** The variables attribution relies on. */
+const RELIED_ON = ['CLAUDECODE', 'CLAUDE_CODE_SESSION_ID'];
+
 /**
  * `ps -E` prints the environment after the arguments, space-separated, with no quoting. Split
- * the remainder at every " NAME=" boundary. A value containing " X=" is split wrongly, which is
- * harmless here: only CLAUDECODE and CLAUDE_CODE_SESSION_ID (no spaces) are relied on.
+ * the remainder at every " NAME=" boundary. A value containing " X=" is split wrongly; it can even
+ * smuggle in a fake "CLAUDE_CODE_SESSION_ID=…". So a relied-on variable that appears more than
+ * once is ambiguous and dropped: the process then counts as unattributed (or not Claude-started),
+ * which only ever makes it, and any group it is in, less killable.
  * Returns null when there is no environment (ps could not read it).
  */
 export function parseEnvSuffix(args: string, withEnv: string): Record<string, string> | null {
@@ -80,6 +85,9 @@ export function parseEnvSuffix(args: string, withEnv: string): Record<string, st
     const end = i + 1 < hits.length ? hits[i + 1].start : rest.length;
     env[h.name] = rest.slice(h.valueStart, end);
   });
+  for (const name of RELIED_ON) {
+    if (hits.filter((h) => h.name === name).length > 1) delete env[name];
+  }
   return env;
 }
 

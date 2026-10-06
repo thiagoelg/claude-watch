@@ -52,6 +52,17 @@ describe('darwin parsers', () => {
     assert.equal(env.CLAUDECODE, '1');
   });
 
+  test('parseEnvSuffix drops a relied-on variable that a crafted value duplicates', () => {
+    const args = 'node evil.js';
+    const real = 'aaaaaaaa-1111-2222-3333-444444444444';
+    const fake = 'bbbbbbbb-1111-2222-3333-444444444444';
+    const env = parseEnvSuffix(args, `${args} CLAUDECODE=1 CLAUDE_CODE_SESSION_ID=${real} NOTE=x CLAUDE_CODE_SESSION_ID=${fake} HOME=/u`)!;
+    assert.equal(env.CLAUDE_CODE_SESSION_ID, undefined, 'ambiguous: neither value is trusted');
+    assert.equal(env.CLAUDECODE, '1');
+    const env2 = parseEnvSuffix(args, `${args} CLAUDECODE=1 X=a CLAUDECODE=0`)!;
+    assert.equal(env2.CLAUDECODE, undefined);
+  });
+
   test('parseEnvSuffix returns null when ps could not read the environment', () => {
     assert.equal(parseEnvSuffix('node x', 'node x'), null);
     assert.equal(parseEnvSuffix('node x', 'other'), null);

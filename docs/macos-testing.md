@@ -120,3 +120,6 @@ time (echo '{"source":"startup"}' | node src/cli.ts hook | cat)
 - Process start times have one-second resolution (identity is `(pid, start second)`).
 - Environments of other users' processes, and possibly of hardened processes, are not visible;
   such processes are simply not listed.
+- `ps -E` output is unquoted, so environment values containing ` NAME=` text are split
+  wrongly. If `CLAUDECODE` or `CLAUDE_CODE_SESSION_ID` is parsed more than once, it is dropped
+  (the process becomes unattributed / an outsider, which only blocks kills).
