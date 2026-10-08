@@ -1,6 +1,6 @@
 {
   "name": "process-watch",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "See the processes Claude Code started, and clean up the ones left by ended sessions",
   "types": "./types/index.d.ts",
   "userConfig": {
