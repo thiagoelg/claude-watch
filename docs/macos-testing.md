@@ -1,7 +1,7 @@
 # macOS: what to verify
 
 The macOS process source (`src/core/proc-darwin.ts`) was written on Linux. Its output parsers are
-unit-tested against sample `ps`/`lsof` output (`test/darwin.test.ts`), but nothing has run on a Mac
+unit-tested against sample `ps`/`lsof` output (`test/darwin.spec.ts`), but nothing has run on a Mac
 yet. Work through this list in order; **stop at step 3 if it fails** (see why there).
 
 Setup: `npm install`, then work inside a Claude Code session in this repo, so the commands Claude
@@ -13,7 +13,7 @@ runs carry `CLAUDECODE=1` and a session id.
 npm test && npm run typecheck
 ```
 
-`test/integration.test.ts` spawns real processes and kills them through the macOS source (`ps` +
+`test/integration.spec.ts` spawns real processes and kills them through the macOS source (`ps` +
 `lsof` + signals); everything else is platform-independent. Expect all green.
 
 ## 2. The `ps` and `lsof` output matches what the parsers expect
@@ -52,7 +52,7 @@ node src/cli.ts list
 If a live session shows up as GHOST, **stop using the dashboard on macOS** — a ghost group is
 killed after a single confirmation instead of the typed session name. Fix `darwinMatchesStart` for
 the real format (and tighten it: drop the `startedAt` fallback once the exact format is known), and
-add the observed value to `test/darwin.test.ts`.
+add the observed value to `test/darwin.spec.ts`.
 
 ## 4. Kill unit (process group instead of session id)
 

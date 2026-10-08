@@ -11,7 +11,7 @@
   },
   "scripts": {
     "start": "node src/cli.ts serve",
-    "test": "node --test --test-concurrency=1 'test/**/*.test.ts'",
+    "test": "node --test --test-concurrency=1 'test/**/*.spec.ts'",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
