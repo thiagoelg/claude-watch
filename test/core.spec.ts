@@ -6,7 +6,8 @@ import { parseStat, readProcs, listeningPorts, parseNetTcp } from '../src/core/p
 import { buildSnapshot, world, type Self } from '../src/core/model.ts';
 import { observe } from '../src/core/observe.ts';
 import { readSessionRecords } from '../src/core/sessions.ts';
-import { sessionsDir } from '../src/core/paths.ts';
+import { defaultPaths, sessionsDir } from '../src/core/paths.ts';
+import os from 'node:os';
 import { FakeWorld, typicalWorld, claudeEnv, statLine, SESSION_A, SESSION_B } from './fixtures.ts';
 
 const SELF: Self = { pid: 99999, ancestors: [] };
@@ -201,3 +202,13 @@ describe('model', () => {
 function writeRecord(w: FakeWorld, name: string, body: string) {
   fs.writeFileSync(path.join(sessionsDir(w.paths), name), body);
 }
+
+describe('paths', () => {
+  test('an empty variable counts as unset, so sessions are still read from ~/.claude', () => {
+    const p = defaultPaths({ CLAUDE_CONFIG_DIR: '', CLAUDE_WATCH_DIR: '', CLAUDE_WATCH_PROC_ROOT: '' });
+    assert.equal(p.claudeDir, path.join(os.homedir(), '.claude'));
+    assert.equal(p.dataDir, path.join(os.homedir(), '.claude-watch'));
+    assert.equal(p.procRoot, '/proc');
+    assert.equal(defaultPaths({ CLAUDE_CONFIG_DIR: '/x' }).claudeDir, '/x');
+  });
+});

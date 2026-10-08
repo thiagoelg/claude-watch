@@ -12,10 +12,12 @@ export interface Paths {
 }
 
 export function defaultPaths(env: NodeJS.ProcessEnv = process.env): Paths {
+  // An empty variable counts as unset: an empty CLAUDE_CONFIG_DIR must not make every session look
+  // ended (and every group a ghost) by reading session records from a relative "sessions" folder.
   return {
-    procRoot: env.CLAUDE_WATCH_PROC_ROOT ?? '/proc',
-    claudeDir: env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude'),
-    dataDir: env.CLAUDE_WATCH_DIR ?? path.join(os.homedir(), '.claude-watch'),
+    procRoot: env.CLAUDE_WATCH_PROC_ROOT || '/proc',
+    claudeDir: env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'),
+    dataDir: env.CLAUDE_WATCH_DIR || path.join(os.homedir(), '.claude-watch'),
   };
 }
 
