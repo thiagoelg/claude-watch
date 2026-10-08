@@ -14,7 +14,10 @@ export function describeGroup(g: Group): string {
   // The shell wrapper's cmdline is Claude's long snapshot-sourcing line; the leaf command is what
   // the user recognises.
   const leaf = [...g.members].reverse().find((m) => !m.cmdline.includes('shell-snapshots')) ?? g.members[0];
-  let cmd = leaf?.cmdline ?? '?';
+  // npx and local installs run a package's bin by its full path; the bin's name is what the user knows.
+  let cmd = (leaf?.cmdline ?? '?').replace(/\S*\/node_modules\/\.bin\/(\S+)/g, '$1')
+    // An absolute program path (/nix/store/<hash>-openjdk-21/bin/java, /usr/bin/python3): its name.
+    .replace(/^\/\S*\/([^/\s]+)/, '$1');
   if (cmd.length > 50) cmd = cmd.slice(0, 49) + '…';
   const ports = [...new Set(g.members.flatMap((m) => m.ports))];
   return ports.length ? `${cmd} on ${ports.map((p) => ':' + p).join(', ')}` : cmd;

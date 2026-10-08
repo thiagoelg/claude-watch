@@ -12,15 +12,20 @@ import { ensureServer, findServer } from './launch.ts';
 import { describeGroup, runHook } from './hook.ts';
 import { ccstatuslineSettings, hookEntry, installCcstatuslineWidget, installHook, installStatusLine, type InstallResult } from './install.ts';
 import { statusLine } from './statusline.ts';
+import { buildReport, parseExpect } from './report.ts';
 
 const USAGE = `usage: claude-watch <command>
 
   serve                              run the dashboard server in the foreground
   open [--no-browser]                start the server if needed and open the dashboard
-  list                               print every process Claude Code started, by session
-  kill <sid|pid> [--execute] [--confirm <session name>] [--session <id>]
+  list [--json [--session <id>] [--ensure]]
+                                     print every process Claude Code started, by session;
+                                     --json for programs (--session: that session is live,
+                                     --ensure: start the dashboard if it is not running)
+  kill <sid|pid> [--execute] [--confirm <session name>] [--session <id>] [--expect <pid:start,...>]
                                      kill a process group (by sid) or one process (by pid);
-                                     dry-run unless --execute
+                                     dry-run unless --execute; --expect refuses if the group
+                                     is no longer exactly those processes
   hook                               the SessionStart hook (reads hook JSON on stdin)
   install-hook [--write]             print the settings.json snippet for the hook;
                                      --write adds it to ~/.claude/settings.json
@@ -93,7 +98,10 @@ function killRequestFor(s: Snapshot, n: number): KillRequest | string {
   if (bySid.length > 1) {
     return `sid ${n} holds groups from several sessions; pick one with --session: ${bySid.map((g) => g.sessionId ?? 'none').join(', ')}`;
   }
-  const expect = (g: Group) => g.members.map((m) => ({ pid: m.pid, starttime: m.starttime }));
+  const expected = option('--expect');
+  const seen = expected === undefined ? null : parseExpect(expected);
+  if (expected !== undefined && !seen) return `--expect takes pid:starttime pairs separated by commas`;
+  const expect = (g: Group) => seen ?? g.members.map((m) => ({ pid: m.pid, starttime: m.starttime }));
   if (bySid.length === 1) {
     const g = bySid[0];
     return { target: { kind: 'group', sessionId: g.sessionId, sid: g.sid }, expect: expect(g), confirm };
@@ -148,6 +156,20 @@ async function main(): Promise<number> {
       const opener = process.platform === 'darwin' ? 'open' : 'xdg-open';
       try { spawn(opener, [url], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref(); } catch {}
     }
+    return 0;
+  }
+
+  if (cmd === 'list' && flag('--json')) {
+    const session = option('--session')?.toLowerCase();
+    const running = findServer(paths);
+    let url = running ? dashboardUrl(running) : null;
+    let error: string | undefined;
+    if (!url && flag('--ensure')) {
+      try { url = (await ensureServer(paths)).url; } catch (e: any) { error = String(e?.message ?? e).split(';')[0]; }
+    }
+    // The calling session may not have written its record yet; it is never a ghost.
+    const snap = buildSnapshot(observe(paths, selfOf(process.pid, paths, session ? [session] : [])));
+    process.stdout.write(JSON.stringify(buildReport(snap, url, error)) + '\n');
     return 0;
   }
 

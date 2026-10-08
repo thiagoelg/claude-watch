@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { runHook } from '../src/hook.ts';
+import { describeGroup, runHook } from '../src/hook.ts';
 import { installHook } from '../src/install.ts';
 import { cleanEnv } from '../src/launch.ts';
 import { FakeWorld, typicalWorld, claudeEnv, SESSION_B } from './fixtures.ts';
@@ -28,7 +28,7 @@ describe('hook', () => {
     const ctx = context(out);
     assert.equal(JSON.parse(out!).hookSpecificOutput.hookEventName, 'SessionStart');
     assert.match(ctx, /1 ghost process group\(s\) left running by 1 Claude Code session/);
-    assert.match(ctx, /node \/p\/node_modules\/\.bin\/vite on :5174/);
+    assert.match(ctx, /node vite on :5174/);
     assert.doesNotMatch(ctx, /shell-snapshots/);
     assert.ok(ctx.includes(URL));
     assert.equal(JSON.parse(out!).systemMessage, `claude-watch: 1 ghost process group(s) left by ended sessions. Dashboard: ${URL}`);
@@ -117,5 +117,13 @@ describe('installHook', () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-watch-settings-'));
+  });
+
+  test('a group is described by its program name, not its full path', () => {
+    const member = (cmdline: string, ports: number[] = []) => ({ pid: 1, starttime: 1, ppid: 1, cmdline, cwd: '/', startedAt: 0, rssKb: 0, ports, role: 'command' as const, killable: true });
+    const group = (...members: ReturnType<typeof member>[]) => ({ id: 'x', sessionId: null, sid: 1, status: 'ghost' as const, members, killable: true });
+    assert.equal(describeGroup(group(member('/nix/store/l5z1hq6l2233-openjdk-21/bin/java -jar app.jar', [8081]))), 'java -jar app.jar on :8081');
+    assert.equal(describeGroup(group(member('node /home/u/.npm/_npx/98/node_modules/.bin/playwright-mcp'))), 'node playwright-mcp');
+    assert.equal(describeGroup(group(member('node ../vite/bin/vite.js --port 5174'))), 'node ../vite/bin/vite.js --port 5174');
   });
 });
