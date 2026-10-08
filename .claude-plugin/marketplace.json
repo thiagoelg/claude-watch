@@ -1,0 +1,13 @@
+{
+  "name": "claude-watch",
+  "owner": {
+    "name": "Thiago Lugli"
+  },
+  "description": "claude-watch: see, and safely clean up, the processes Claude Code starts",
+  "plugins": [
+    {
+      "name": "process-watch",
+      "source": "./"
+    }
+  ]
+}

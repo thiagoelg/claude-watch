@@ -1,0 +1,24 @@
+{
+  "name": "process-watch",
+  "version": "0.2.0",
+  "description": "See the processes Claude Code started, and clean up the ones left by ended sessions",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "cli": {
+      "type": "string",
+      "title": "claude-watch CLI",
+      "description": "Path to a claude-watch src/cli.ts, or a claude-watch command. Empty: the CLI this mod ships with, else claude-watch on PATH.",
+      "default": ""
+    },
+    "warnOnExit": {
+      "type": "boolean",
+      "title": "Warn on exit",
+      "description": "Send a notification when a session ends with processes it started still running.",
+      "default": true
+    }
+  },
+  "author": {
+    "name": "Thiago Lugli"
+  },
+  "repository": "https://github.com/thiagoelg/claude-watch"
+}

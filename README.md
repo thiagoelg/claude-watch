@@ -22,11 +22,81 @@ The environment survives the parent dying, which is what makes this work without
 | unattributed | `CLAUDECODE=1` without a session id; shown, never killed |
 | Claude process | a live session's own pid, or anything running the same dedicated Claude binary; shown, never killed |
 
+## Install
+
+**Requirements:** Linux or macOS, Claude Code, and Node ≥ 22.18 on your PATH (`node --version`).
+Nothing else: the CLI has no dependencies, and the mod carries it.
+
+### As a Claude Code mod (recommended)
+
+1. In a Claude Code session **in a terminal**, run:
+
+   ```
+   /plugin install process-watch --marketplace thiagoelg/claude-watch
+   ```
+
+   Or from your shell:
+
+   ```sh
+   claude plugin marketplace add thiagoelg/claude-watch
+   claude plugin install process-watch@claude-watch
+   ```
+
+2. Answer `y` to add the marketplace, then pick a scope (**user** makes it work in every project).
+   The options screen can be skipped: the defaults work.
+3. Run `/process-watch` to check it: it prints the dashboard URL and opens the pane.
+
+The mod is called `process-watch` because mod names cannot start with `claude-`.
+
+**Claude desktop app:** install from a terminal as above (the desktop's Code tab cannot run
+`/plugin install`), then start a new session in the desktop app. The pane and status entry work
+there; the end-of-session notification does not, since it needs a terminal.
+
+**Update:** `claude plugin marketplace update claude-watch`, then
+`claude plugin update process-watch@claude-watch`, then start a new session (or `/reload-plugins`).
+
+**Options** (`/config`, or `claude plugin configure process-watch@claude-watch`):
+
+| Option | Default | |
+|---|---|---|
+| `cli` | empty | Path to another `src/cli.ts`, or a `claude-watch` command. Empty: the CLI the mod ships with. |
+| `warnOnExit` | on | Notify when a session ends with processes it started still running. |
+
+**Uninstall:** `claude plugin uninstall process-watch@claude-watch`.
+
+What you get, without anything in `settings.json`:
+
+- **Status entry:** `claude-watch: 2 ghosts · 1 running here · /process-watch`, refreshed every
+  15 s and hidden when there is nothing to report.
+- **`/process-watch`:** prints the dashboard URL and the ghosts, and opens a pane: one card per
+  process group with its ports, session and age; **Stop** on a ghost asks once more, then stops
+  it; **Open dashboard** opens the full dashboard in your browser. Processes attached to an
+  editor or terminal (MCP servers) are folded away.
+- **A note for Claude** about ghosts, added to the system prompt once per session (it does not
+  change mid-session, so the prompt cache holds), so Claude can tell you why port 5173 is taken.
+- **A warning at exit:** when a session ends with processes it started still running, a
+  notification naming them (a toast on `/clear`).
+
+The mod reads and stops processes only through the CLI (`list --json`,
+`kill <sid> --expect <pid:start,...>`), so every check under [Killing safely](#killing-safely)
+applies, and a group that changed since the pane drew it is refused. Live sessions' processes
+are left to the dashboard, which asks for the session name.
+
+### Without the mod: hook and status line
+
+From a clone (`git clone https://github.com/thiagoelg/claude-watch`), the
+[SessionStart hook](#sessionstart-hook) and the [status line](#status-line) below do the same
+jobs through `settings.json`. Use one or the other: with the mod installed, remove the hook and
+the status line from `settings.json`, or you get both.
+
 ## Use
+
+From a clone (or `~/.claude/plugins/cache/claude-watch/process-watch/<version>/` once the mod is
+installed):
 
 ```sh
 node src/cli.ts open          # start the dashboard if needed and open it in the browser
-node src/cli.ts list          # the same information in the terminal
+node src/cli.ts list          # the same information in the terminal (--json for programs)
 node src/cli.ts kill <sid>    # dry run of killing a group (or <pid> for one process)
 node src/cli.ts kill <sid> --execute [--confirm <session name>]
 ```
@@ -142,4 +212,7 @@ All process information goes through one interface (`ProcSource` in `src/core/pr
 npm install
 npm test           # node:test: fixture /proc trees, a real-process kill, HTTP security checks
 npm run typecheck
+claude plugin validate .   # the mod: .claude-plugin/, hooks/register.tsx, types/
+claude plugin test .       # the mod's tests (hooks/*.test.tsx); node's are test/*.spec.ts
+claude --plugin-dir .      # a session with the mod loaded from this checkout
 ```

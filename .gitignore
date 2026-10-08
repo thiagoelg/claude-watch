@@ -8,6 +8,9 @@ server.json
 server.lock
 .claude-watch/
 
+# Written by Claude Code when it loads the mod
+.claude-plugin/types/
+
 # Test and tool output
 coverage/
 .playwright-mcp/
