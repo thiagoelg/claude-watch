@@ -143,5 +143,3 @@ npm install
 npm test           # node:test: fixture /proc trees, a real-process kill, HTTP security checks
 npm run typecheck
 ```
-
-Design: [docs/superpowers/specs/2026-10-06-claude-watch-design.md](docs/superpowers/specs/2026-10-06-claude-watch-design.md).
